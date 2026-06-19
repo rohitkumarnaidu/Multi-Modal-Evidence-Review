@@ -117,10 +117,15 @@ class ImageAnalysis(BaseModel):
     # What's visible
     visible_object_type: str = "unknown"     # car, laptop, package, other
     visible_object_part: str = "unknown"     # specific part
+    visible_parts_list: list[str] = Field(default_factory=list)  # ALL visible parts
     visible_issue_type: str = "none"         # damage type visible
     visible_severity: str = "unknown"        # from visual evidence
     vehicle_color: str = ""                  # for car identity matching
     vehicle_type: str = ""                   # sedan, SUV, truck, etc.
+
+    # YOLO priors (deterministic object detection)
+    yolo_object_type: str = ""               # car/laptop/package/other/unknown
+    yolo_confidence: float = 0.0
 
     # Quality & trust
     is_blurry: bool = False

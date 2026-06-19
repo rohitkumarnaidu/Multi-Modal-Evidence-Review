@@ -8,6 +8,11 @@ dist/
 build/
 *.egg
 
+# ─── ML Model Weights ──────────────────────────────────────────────────────────
+*.pt
+yolov8n.pt
+*.onnx
+
 # ─── Virtual Environment ─────────────────────────────────────────────────────
 venv/
 .venv/

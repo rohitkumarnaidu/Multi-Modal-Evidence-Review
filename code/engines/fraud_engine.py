@@ -90,7 +90,8 @@ def _check_wrong_part(
         return
 
     claimed_part_visible = any(
-        a.visible_object_part == extraction.claimed_object_part
+        (a.visible_object_part == extraction.claimed_object_part
+         or extraction.claimed_object_part in a.visible_parts_list)
         and a.is_usable
         for a in analyses
     )

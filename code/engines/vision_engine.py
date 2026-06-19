@@ -21,6 +21,7 @@ from config import ISSUE_TYPES, OBJECT_PARTS_BY_TYPE, STOCK_IMAGE_MARKERS
 from data_loader import get_image_mime_type, load_image_as_base64
 from detectors.cv_quality import analyze_image_quality
 from detectors.exif_analyzer import analyze_exif
+from detectors.yolo_detector import detect_objects
 from engines.claim_engine import _fuzzy_match_part, _fuzzy_match_issue
 from models import ClaimInput, ImageAnalysis
 
@@ -55,8 +56,28 @@ def analyze_single_image(
     cv_quality = analyze_image_quality(image_path)
     exif_data = analyze_exif(image_path)
 
+    # Run YOLO for deterministic object detection prior
+    yolo_result = detect_objects(image_path)
+    yolo_prior = ""
+    if yolo_result and yolo_result["object_type"] != "unknown":
+        obj = yolo_result["object_type"]
+        conf = yolo_result["confidence"]
+        if yolo_result["all_objects"]:
+            labels = [d["label"] for d in yolo_result["all_objects"][:3]]
+            yolo_prior = (
+                f"YOLO object detection prior: detected a {obj} "
+                f"(confidence={conf:.2f}, labels: {', '.join(labels)}). "
+                f"Use this as a hint for visible_object_type."
+            )
+        else:
+            yolo_prior = (
+                f"YOLO object detection prior: detected a {obj} "
+                f"(confidence={conf:.2f}). "
+                f"Use this as a hint for visible_object_type."
+            )
+
     # Build prompt and call VLM
-    prompt = build_image_analysis_prompt(image_id, claim.claim_object)
+    prompt = build_image_analysis_prompt(image_id, claim.claim_object, yolo_prior)
     mime_type = get_image_mime_type(image_path)
 
     result = llm_client.call_vision(
@@ -85,15 +106,36 @@ def analyze_single_image(
     if visible_issue not in ISSUE_TYPES:
         visible_issue = _fuzzy_match_issue(visible_issue)
 
+    # Parse visible_parts_list from VLM result
+    raw_parts = result.get("visible_parts_list", [])
+    if isinstance(raw_parts, list):
+        visible_parts = [p for p in raw_parts if isinstance(p, str) and p in allowed_parts]
+    else:
+        visible_parts = [visible_part] if visible_part in allowed_parts else []
+
+    # Merge YOLO with VLM object type (YOLO overrides when confident)
+    yolo_obj = ""
+    yolo_conf = 0.0
+    if yolo_result:
+        yolo_obj = yolo_result.get("object_type", "")
+        yolo_conf = yolo_result.get("confidence", 0.0)
+    if yolo_obj and yolo_conf >= 0.5 and yolo_obj in ("car", "laptop", "package"):
+        obj_type = yolo_obj
+    else:
+        obj_type = result.get("visible_object_type", "unknown")
+
     # Merge CV quality with VLM results (CV overrides for objective metrics)
     analysis = ImageAnalysis(
         image_id=image_id,
         image_path=image_path,
-        visible_object_type=result.get("visible_object_type", "unknown"),
+        visible_object_type=obj_type,
         visible_object_part=visible_part,
+        visible_parts_list=visible_parts,
         visible_issue_type=visible_issue,
         visible_severity=_normalize_severity(result.get("visible_severity", "unknown")),
         vehicle_color=result.get("vehicle_color", ""),
+        yolo_object_type=yolo_obj,
+        yolo_confidence=yolo_conf,
         is_blurry=cv_quality.get("is_blurry", False) or result.get("is_blurry", False),
         is_low_light=cv_quality.get("is_low_light", False) or result.get("is_low_light", False),
         is_cropped=cv_quality.get("is_cropped", False) or result.get("is_cropped", False),

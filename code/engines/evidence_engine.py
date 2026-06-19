@@ -85,7 +85,7 @@ def _check_part_evidence(
     )
 
     claimed_part_visible = any(
-        a.visible_object_part == check_part
+        (a.visible_object_part == check_part or check_part in a.visible_parts_list)
         and a.is_usable
         and not a.has_wrong_angle
         for a in image_analyses
@@ -151,7 +151,7 @@ def _check_part_evidence(
 
     if check_issue == "missing_part" and claimed_part_visible:
         part_visible_with_damage = any(
-            a.visible_object_part == check_part
+            (a.visible_object_part == check_part or check_part in a.visible_parts_list)
             and a.is_usable
             and a.visible_issue_type not in ("none", "unknown", "missing_part")
             for a in image_analyses
@@ -253,7 +253,7 @@ def _build_met_reason(
 ) -> str:
     best = None
     for a in analyses:
-        if a.visible_object_part == part and a.is_usable and not a.is_blurry:
+        if (a.visible_object_part == part or part in a.visible_parts_list) and a.is_usable and not a.is_blurry:
             best = a
             break
     if not best:

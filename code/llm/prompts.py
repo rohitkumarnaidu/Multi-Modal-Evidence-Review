@@ -61,10 +61,13 @@ CRITICAL RULES:
 3. Check for stock image watermarks (Veeepik, Shutterstock, Getty, iStockphoto, Alamy, etc.)
 4. Assess image quality honestly: blur, lighting, cropping, angle.
 5. For cars: note the vehicle color and any identifying features for cross-image matching.
-6. For object_part: report the part that is MOST PROMINENTLY VISIBLE in the image.
+6. For visible_object_part: report the SINGLE MOST PROMINENTLY visible part.
+7. For visible_parts_list: list ALL parts you can see in the image, even partially visible ones. Be thorough — include every visible object part.
 
 This image is labeled as: {image_id}
 The claim is about a: {claim_object}
+
+{yolo_prior}
 
 ALLOWED issue_type VALUES: dent, scratch, crack, glass_shatter, broken_part, missing_part, torn_packaging, crushed_packaging, water_damage, stain, none, unknown
 
@@ -74,7 +77,8 @@ ALLOWED object_part VALUES FOR {claim_object}:
 Respond with ONLY this JSON:
 {{
     "visible_object_type": "<car/laptop/package/other/unknown>",
-    "visible_object_part": "<from allowed object_part values — what part is VISIBLE>",
+    "visible_object_part": "<from allowed object_part values — what part is MOST VISIBLE>",
+    "visible_parts_list": ["<array of ALL visible parts from allowed values — be thorough>"],
     "visible_issue_type": "<from allowed issue_type values — what damage is VISIBLE, use 'none' if part is visible but undamaged>",
     "visible_severity": "<none/low/medium/high/unknown — based on VISUAL extent of damage>",
     "vehicle_color": "<color of vehicle if car, else empty string>",
@@ -137,12 +141,16 @@ def build_claim_extraction_prompt(conversation: str, claim_object: str) -> str:
 def build_image_analysis_prompt(
     image_id: str,
     claim_object: str,
+    yolo_prior: str = "",
 ) -> str:
     """Build the per-image analysis prompt."""
+    if not yolo_prior:
+        yolo_prior = "No prior object detection available."
     return IMAGE_ANALYSIS_PROMPT.format(
         image_id=image_id,
         claim_object=claim_object,
         allowed_parts=get_allowed_parts_str(claim_object),
+        yolo_prior=yolo_prior,
     )
 
 
