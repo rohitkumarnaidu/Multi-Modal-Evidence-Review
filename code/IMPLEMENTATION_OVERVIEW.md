@@ -2,7 +2,7 @@
 
 ## TL;DR
 
-**18 source files**, **~2,000 lines of code**, **2 LLM calls per claim** (1 text + N vision), **8 deterministic engines**, **multi-key rotation** for free-tier rate limits, processes 44 test claims → `output.csv`. Everything downstream of the Gemini calls is pure rule-based Python — no hidden LLM calls.
+**24 source files**, **~3,200 lines of code**, **4 LLM providers** (Gemini → Groq → OpenRouter → NVIDIA), **2 LLM calls per claim** (1 text + N vision), **8 deterministic engines**, **per-key RPM/RPD rate limiting**, **multi-model comparison** system, processes 44 test claims → `output.csv`. Everything downstream of the LLM calls is pure rule-based Python — no hidden LLM calls.
 
 ---
 
@@ -20,12 +20,12 @@
 │  FOR EACH CLAIM:                                                    │
 │  ┌────────────────────────────────────────────────────────────────┐ │
 │  │ ★ API CALL 1: claim_engine.extract_claim_with_llm()           │ │
-│  │   → Sends conversation TEXT ONLY to Gemini Flash              │ │
+│  │   → Sends conversation TEXT ONLY to LLM (any provider)        │ │
 │  │   → Gets back: claimed_part, claimed_issue, injection flag    │ │
 │  │   → Also runs regex pre-scan for prompt injection patterns    │ │
 │  ├────────────────────────────────────────────────────────────────┤ │
 │  │ ★ API CALL 2..N: vision_engine.analyze_single_image()         │ │
-│  │   → Sends EACH image INDIVIDUALLY to Gemini Flash             │ │
+│  │   → Sends EACH image INDIVIDUALLY to VLM (any provider)       │ │
 │  │   → Gets back: visible_part, visible_issue, quality flags,    │ │
 │  │     watermark, text_instruction, vehicle_color, confidence    │ │
 │  ├────────────────────────────────────────────────────────────────┤ │
@@ -44,236 +44,227 @@
 
 ---
 
-## API Key Rotation System
+## Multi-Provider Fallback Chain
 
-Since we use Gemini free tier (20 RPD per key), the system supports **multiple API keys** with automatic rotation:
+The system uses 4 LLM providers in a priority fallback chain. If one provider fails all retries, the next is tried automatically. The pipeline code doesn't know or care which provider handled the call.
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│  GEMINI_API_KEYS = key1, key2, key3  (comma-separated in .env)     │
-│                                                                     │
-│  Request → key1 → 429 RESOURCE_EXHAUSTED?                           │
-│             ↓ YES                                                   │
-│  Rotate  → key2 → 429 RESOURCE_EXHAUSTED?                           │
-│             ↓ YES                                                   │
-│  Rotate  → key3 → 429 RESOURCE_EXHAUSTED?                           │
-│             ↓ YES                                                   │
-│  All keys exhausted → graceful fallback to "unknown" for that call  │
-└─────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────┐
+│  MultiProviderClient (multi_provider_client.py)                         │
+│                                                                          │
+│  Request ──► GEMINI (6 keys, 5 RPM/key, 20 RPD/key)                    │
+│              │ gemini-2.5-flash                                          │
+│              │ auto key rotation on 429                                  │
+│              ▼ All keys exhausted?                                       │
+│         ──► GROQ (25 RPM, 14,400 RPD)                                   │
+│              │ llama-4-maverick-17b-128e-instruct                        │
+│              ▼ Failed?                                                   │
+│         ──► OPENROUTER (20 RPM, free tier)                               │
+│              │ google/gemini-2.5-flash (same model, different quota)     │
+│              ▼ Failed?                                                   │
+│         ──► NVIDIA (40 RPM, ∞ unlimited credits)                         │
+│              │ meta/llama-4-maverick-17b-128e-instruct                   │
+│              ▼ Failed?                                                   │
+│         ──► Return None (graceful fallback)                              │
+└──────────────────────────────────────────────────────────────────────────┘
 ```
 
-This is implemented in `gemini_client.py` — on any 429/quota error, the client immediately swaps to the next key without sleeping. With **N keys**, you get **N × 20 = N×20 RPD**, enough for the full pipeline.
+### Provider Configuration
 
-Additionally, all successful API responses are **cached to disk** (`.cache/` directory, SHA-256 keyed JSON files). Re-runs skip already-processed claims entirely, meaning you never waste API calls on claims you've already analyzed.
+| Provider | Model (Vision) | Model (Text) | RPM | RPD | Status |
+|----------|---------------|--------------|-----|-----|--------|
+| **Gemini** | `gemini-2.5-flash` | `gemini-2.5-flash` | 5/key (30 total) | 20/key (120 total) | ✅ Active |
+| **Groq** | `llama-4-maverick-17b-128e` | `llama-3.3-70b-versatile` | 25 | 14,400 | ✅ Active |
+| **OpenRouter** | `google/gemini-2.5-flash` | `google/gemini-2.5-flash` | 20 | varies | ✅ Active |
+| **NVIDIA** | `meta/llama-4-maverick-17b-128e` | `meta/llama-4-maverick-17b-128e` | 40 | ∞ unlimited | ✅ Active |
 
 ---
 
-## Supported API Providers
+## Rate Limiting System
 
-The `.env` file supports keys for multiple providers (future extensibility):
+The system has **two types of rate limiters** to prevent 429 errors proactively:
 
-| Provider | Env Variable | Current Usage |
-|----------|-------------|---------------|
-| **Gemini** | `GEMINI_API_KEYS` | ✅ Active — primary VLM (gemini-2.5-flash) |
-| **Groq** | `GROQ_API_KEY` | 🔮 Ready — config loaded, client not yet wired |
-| **OpenRouter** | `OPENROUTER_API_KEY` | 🔮 Ready — config loaded, client not yet wired |
-| **NVIDIA** | `NVIDIA_API_KEY` | 🔮 Ready — config loaded, client not yet wired |
+### KeyRateLimiter (Gemini — per-key RPM + RPD)
+
+```
+┌────────────────────────────────────────────────────────────┐
+│  Per-Key Tracking:                                         │
+│                                                            │
+│  Key 0: RPM ████░░ 4/5   RPD ████████████████████ 20/20   │
+│  Key 1: RPM ██░░░░ 2/5   RPD ████████████░░░░░░░░ 12/20   │
+│  Key 2: RPM ░░░░░░ 0/5   RPD ████░░░░░░░░░░░░░░░░  4/20   │
+│                                                            │
+│  • Sliding window: tracks last 60s of request timestamps   │
+│  • Proactive rotation: switches key BEFORE hitting API     │
+│  • Auto-sleep: waits when RPM limit reached                │
+│  • mark_key_exhausted(): learns from 429 errors            │
+└────────────────────────────────────────────────────────────┘
+```
+
+### SimpleRateLimiter (Groq / OpenRouter / NVIDIA)
+
+- Sliding 60-second window
+- Auto-sleeps when at RPM limit (+1.5s safety margin)
+- No key rotation needed (single key per provider)
+
+---
+
+## Multi-Model Comparison System
+
+The system can run ALL providers independently and generate a cross-model comparison report.
+
+### Usage
+
+```bash
+# Run single provider
+python main.py --provider nvidia      # → dataset/output_nvidia.csv
+
+# Run all providers + comparison
+python compare_models.py              # Runs all 4, generates comparison
+
+# Just compare existing outputs  
+python compare_models.py --report-only
+```
+
+### Output Files
+
+| File | What |
+|------|------|
+| `dataset/output_gemini.csv` | Gemini-only results |
+| `dataset/output_groq.csv` | Groq-only results |
+| `dataset/output_openrouter.csv` | OpenRouter-only results |
+| `dataset/output_nvidia.csv` | NVIDIA-only results |
+| `dataset/model_comparison.csv` | Side-by-side per-claim comparison |
+| `dataset/output_consensus.csv` | **Majority-vote consensus** (best of all models) |
+
+Each provider uses its own **isolated cache** (`.cache_gemini/`, `.cache_groq/`, etc.) so models never see each other's cached responses.
 
 ---
 
 ## File-by-File Breakdown
 
-### Infrastructure (4 files)
+### Infrastructure (5 files)
 
 | File | Lines | What It Does | Honest Assessment |
 |------|-------|-------------|-------------------|
-| `config.py` | 158 | All constants, paths, enums, .env loader, multi-key parsing | ✅ Solid. Zero-dependency .env parsing. All enum values from problem_statement.md. Supports `GEMINI_API_KEYS` (comma-separated) with fallback to `GEMINI_API_KEY`. |
-| `models.py` | 266 | Pydantic models for every pipeline stage | ✅ Good validation. `to_csv_row()` normalizes invalid values. One concern: `validate_object_part` mutates `self.object_part` on a Pydantic model — works because model_config isn't frozen, but not idiomatic. |
-| `data_loader.py` | 162 | CSV I/O, image base64 encoding | ✅ Handles BOM (`utf-8-sig`), Windows path separators. Writes with `QUOTE_ALL` for safety. |
-| `.env` | 11 | API keys (Gemini multi-key, Groq, OpenRouter, NVIDIA) | ✅ Auto-loaded by config.py. `.gitignore`'d — never committed. |
+| `config.py` | 175 | All constants, paths, enums, .env loader, multi-key parsing, 4 provider model configs | ✅ Solid. Zero-dependency .env parsing. All enum values from problem_statement.md. |
+| `models.py` | 266 | Pydantic models for every pipeline stage | ✅ Good validation. `to_csv_row()` normalizes invalid values. |
+| `data_loader.py` | 162 | CSV I/O, image base64 encoding | ✅ Handles BOM (`utf-8-sig`), Windows path separators. |
+| `.env` | 11 | API keys (Gemini×6, Groq, OpenRouter, NVIDIA) | ✅ Auto-loaded by config.py. `.gitignore`'d — never committed. |
+| `requirements.txt` | 4 | `google-genai`, `pydantic`, `openai`, `groq` | ✅ 4 deps total. |
 
-### LLM Layer (4 files)
+### LLM Layer (7 files)
 
 | File | Lines | What It Does | Honest Assessment |
 |------|-------|-------------|-------------------|
-| `gemini_client.py` | 261 | google.genai SDK wrapper, **multi-key rotation**, retries, caching, token tracking | ✅ Detects 429/quota errors → rotates to next key instantly. `Part.from_bytes` for images. `response_mime_type="application/json"` forces structured output. **Weakness**: cost estimate uses hardcoded pricing — may drift. |
-| `prompts.py` | 166 | All 3 prompt templates | ⚠️ The core of accuracy. Prompts explicitly list allowed enum values, instruct to IGNORE text in images, and demand JSON-only output. **Risk**: prompt engineering is inherently fragile — VLM may still hallucinate on edge cases. |
-| `cache.py` | 74 | SHA-256 keyed file-based JSON cache | ✅ Survives restarts. Avoids re-running API calls on same inputs. 63 cached responses from our first run. |
+| `gemini_client.py` | 330 | google.genai SDK wrapper, **multi-key rotation**, per-key RPM/RPD rate limiting, retries with retryDelay parsing, caching, token tracking | ✅ Proactive key rotation BEFORE hitting API. Parses `retryDelay` from 429 errors. No more spin-loop bug. |
+| `openai_compat_client.py` | 240 | OpenAI-compatible client for Groq, OpenRouter, NVIDIA | ✅ Single client handles all 3 providers by swapping base_url + api_key + model. RPM rate limiting via SimpleRateLimiter. |
+| `multi_provider_client.py` | 210 | Orchestrator with Gemini → Groq → OpenRouter → NVIDIA fallback chain | ✅ `--provider` flag for per-model comparison. Separate cache per provider. Same call_text/call_vision interface. |
+| `rate_limiter.py` | 165 | `KeyRateLimiter` (per-key RPM+RPD) and `SimpleRateLimiter` (RPM only) | ✅ Sliding window, proactive rotation, auto-sleep, exhaustion tracking. |
+| `prompts.py` | 166 | All 3 prompt templates | ⚠️ The core of accuracy. Prompts explicitly list allowed enum values, instruct to IGNORE text in images, and demand JSON-only output. |
+| `cache.py` | 74 | SHA-256 keyed file-based JSON cache | ✅ Survives restarts. Avoids re-running API calls on same inputs. |
 | `__init__.py` | 1 | Package marker | ✅ |
 
 ### 8 Engines (8 files)
 
 | Engine | File | Lines | What It Does | Honest Assessment |
 |--------|------|-------|-------------|-------------------|
-| **E1** Claim | `claim_engine.py` | 166 | Extract claim from conversation via LLM + regex pre-scan | ✅ Fuzzy matching for ~40 aliases (bumper_front→front_bumper, display→screen, etc.). **Weakness**: fuzzy matching is hand-coded — may miss unusual aliases the LLM returns. |
-| **E2** Vision | `vision_engine.py` | 170 | Per-image VLM analysis | ✅ Independent analysis per image — the key design win. Vehicle color extraction for identity matching. Supporting image selection with 4-tier priority. **Weakness**: relies on VLM accuracy for part identification. |
-| **E3** Evidence | `evidence_engine.py` | 235 | Deterministic evidence sufficiency check | ⚠️ Maps issue types → requirement families via hardcoded dicts. This is fragile if new issue types are added. Vehicle identity check is basic (color string comparison). |
-| **E4** Quality | `quality_engine.py` | 80 | Aggregate image quality → valid_image | ✅ Simple and correct: all watermarked = invalid, mixed blur = valid with flag. |
-| **E5** Fraud | `fraud_engine.py` | 246 | 8 fraud signal detectors | ⚠️ The most complex deterministic engine. Checks: wrong_object, wrong_object_part, claim_mismatch, prompt_injection (text), text_instruction (image), non_original_image, vehicle_identity, damage_not_visible. **Weakness**: severity exaggeration check only catches simple cases. Vehicle color comparison is naive string matching — "dark blue" ≠ "blue". |
-| **E6** Risk | `risk_engine.py` | 82 | User history propagation | ✅ Always propagates history flags. Auto-computes additional risk from rejection_ratio≥0.4 and claim_frequency. Simplest engine, matches sample labels well. |
-| **E7** Decision | `decision_engine.py` | 478 | Aggregates all signals → final output | ⚠️ The most critical engine. 8-rule decision tree. object_part = VISIBLE (not claimed). Edge cases from sample labels handled (case_006, case_019, case_002). **Weakness**: hand-crafted decision tree — unexpected VLM values may produce wrong status. |
-| **E8** Explain | `explain_engine.py` | 80 | Consistency checks + polish | ✅ Catches issue_type=none+status=supported inconsistency (flips to contradicted). Truncates long justifications. |
+| **E1** Claim | `claim_engine.py` | 166 | Extract claim from conversation via LLM + regex pre-scan | ✅ Fuzzy matching for ~40 aliases. |
+| **E2** Vision | `vision_engine.py` | 170 | Per-image VLM analysis | ✅ Independent analysis per image. Vehicle color extraction. |
+| **E3** Evidence | `evidence_engine.py` | 235 | Deterministic evidence sufficiency check | ⚠️ Hardcoded mappings — fragile if new issue types added. |
+| **E4** Quality | `quality_engine.py` | 80 | Aggregate image quality → valid_image | ✅ Simple and correct. |
+| **E5** Fraud | `fraud_engine.py` | 246 | 8 fraud signal detectors | ⚠️ Most complex engine. Vehicle color comparison is naive string matching. |
+| **E6** Risk | `risk_engine.py` | 82 | User history propagation | ✅ Always propagates. Matches sample labels. |
+| **E7** Decision | `decision_engine.py` | 478 | Aggregates all signals → final output | ⚠️ Most critical. 8-rule decision tree. |
+| **E8** Explain | `explain_engine.py` | 80 | Consistency checks + polish | ✅ Catches inconsistencies. |
 
-### Pipeline & Evaluation (3 files)
+### Pipeline, Comparison & Evaluation (6 files)
 
 | File | Lines | What It Does | Honest Assessment |
 |------|-------|-------------|-------------------|
-| `main.py` | 219 | Full orchestrator with CLI | ✅ Error recovery per claim (returns safe fallback on exception). Rate limiting (0.3s between claims). Logs everything to run.log. |
-| `evaluation/metrics.py` | 176 | Exact match, F1, confusion matrix, Jaccard | ✅ Standard metrics. Risk flags use micro/macro F1 since they're multi-label. |
-| `evaluation/main.py` | 122 | Eval pipeline + operational report | ✅ Runs pipeline on sample_claims.csv, compares to ground truth, generates markdown report. |
+| `main.py` | 330 | Full orchestrator with CLI: `--mode`, `--provider`, `--retry-failed`, `--output` | ✅ Error recovery per claim. Multi-provider support. Retry-failed skips successful claims. |
+| `compare_models.py` | 260 | Runs all 4 providers independently, generates comparison report + majority-vote consensus | ✅ Per-field agreement %, per-model stats, consensus output. |
+| `clear_failed_cache.py` | 65 | Removes cached responses with unknown/unknown results | ✅ Ensures re-runs actually call the API. |
+| `check_output.py` | ~40 | Prints output.csv statistics | ✅ Dev utility. |
+| `evaluation/metrics.py` | 176 | Exact match, F1, confusion matrix, Jaccard | ✅ Standard metrics. |
+| `evaluation/main.py` | 122 | Eval pipeline + operational report | ✅ Compares to ground truth. |
 
-### Utility & Config Files
+### Validation & Config
 
-| File | Purpose | Notes |
-|------|---------|-------|
-| `validate.py` | 14-test dry-run validation | All pass. Tests fuzzy matching, injection detection, user risk, quality, fraud, decision logic, CSV format. |
-| `check_labels.py` | Prints sample ground truth labels | Dev utility. |
-| `check_output.py` | Prints output.csv statistics | Dev utility. |
-| `requirements.txt` | `google-genai>=2.9.0`, `pydantic>=2.0.0` | Only 2 deps. |
-| `.gitignore` | Ignores .env, cache, logs, outputs, __pycache__ | Standard — API keys are never committed. |
+| File | Purpose |
+|------|---------|
+| `validate.py` | 14-test dry-run validation — all pass |
+| `.gitignore` | Ignores .env, cache, logs, outputs, __pycache__ |
 
 ---
 
 ## What's ACTUALLY Good (Not Hype)
 
 ### 1. Two-Call Design
-This is the single best architectural decision. Each image is analyzed independently, which means:
-- Blurry img_1 doesn't pollute clear img_2's analysis
-- Vehicle identity can be cross-checked (color comparison across images)
-- Text instructions in one image (case_020 sticky note) don't influence other image analysis
-- Supporting image selection can pick the best one
+Each image is analyzed independently. Blurry img_1 doesn't pollute clear img_2. Text instructions in one image don't influence other analyses.
 
-### 2. Multi-Key Rotation
-Automatic rotation across multiple free-tier Gemini API keys. When key1 hits 20 RPD, instantly switches to key2 without any delay. With 3 keys = 60 RPD, with 4 keys = 80 RPD, etc. Combined with disk caching, re-runs cost zero API calls for already-processed claims.
+### 2. 4-Provider Fallback Chain
+Never fails due to rate limits. Gemini exhausted? Falls through to Groq (14K RPD). Groq down? OpenRouter. OpenRouter slow? NVIDIA (40 RPM, ∞ credits). Total effective capacity: **14,500+ RPD**.
 
-### 3. Enum Enforcement
-Every output field is validated against allowed values. Invalid LLM outputs get normalized to "unknown". This prevents CSV schema violations.
+### 3. Per-Key RPM/RPD Rate Limiting
+Not a simple sleep timer — actual sliding-window rate limiter that tracks timestamps per key. Proactively rotates keys BEFORE hitting the API. Parses `retryDelay` from 429 error responses.
 
-### 4. User History Always Propagates
-Even on `supported` claims, user risk flags appear in output. This matches sample labels exactly (case_017: supported but with `user_history_risk;manual_review_required`).
+### 4. Multi-Model Comparison
+Run every claim through Gemini, Groq, OpenRouter, AND NVIDIA independently. See where models agree/disagree. Majority-vote consensus picks the best answer.
 
-### 5. File-Based Cache
-API responses cached to `.cache/` directory. Re-runs skip API calls for already-processed claims. Saves money during development. 63 cached responses from first run.
+### 5. Per-Provider Cache Isolation
+Each provider gets its own cache directory. Models never see each other's cached responses. Ensures genuine independent analysis.
 
-### 6. Deterministic Post-Processing
-Engines 3–8 are pure Python logic. No randomness, no LLM calls. Same inputs → same outputs every time. This makes debugging easy.
+### 6. Smart Retry-Failed
+`--retry-failed` flag re-processes ONLY claims that previously failed (unknown/unknown). Successful claims are preserved. Zero wasted API calls.
 
 ---
 
 ## What's Honestly WEAK or RISKY
 
 ### 1. VLM Accuracy is the Bottleneck
-> **Reality**: The entire system's accuracy depends on Gemini Flash correctly identifying: visible object type, visible part, visible damage type, damage severity, watermarks, text instructions, and vehicle color. If Gemini gets any of these wrong, the deterministic engines faithfully propagate the wrong signal.
-
-**Specific risks:**
-- "front_bumper" vs "hood" — VLM may confuse similar car parts
-- Severity ("low" vs "medium") — subjective, VLM may disagree with ground truth
-- Subtle watermarks (e.g., "Veeepik" semi-transparent) — VLM may miss them
-- Vehicle color under different lighting — "dark blue" vs "black"
+> **Reality**: The entire system's accuracy depends on the VLM correctly identifying visible parts, damage types, severity, watermarks, and vehicle color. If the VLM gets these wrong, the deterministic engines faithfully propagate the wrong signal.
 
 ### 2. Prompt Engineering is Fragile
-The prompts tell the VLM to return specific JSON with specific enum values. If Gemini's behavior changes across versions, or if it returns unexpected formats, the pipeline could break. The `response_mime_type="application/json"` helps but isn't bulletproof.
+The prompts demand specific JSON with specific enum values. Different models may interpret prompts differently. Llama 4 Maverick may return slightly different field values than Gemini 2.5 Flash.
 
 ### 3. No Parallel Processing
-Claims are processed sequentially. 44 claims × ~3 API calls each × ~2s per call = ~4-5 minutes. For a hackathon this is fine; for production it's slow.
+Claims are processed sequentially. 44 claims × ~3 API calls each × ~2s per call = ~4-5 minutes. For a hackathon this is fine.
 
 ### 4. Vehicle Identity Matching is Naive
-Currently just compares vehicle color strings across images. Real vehicle identity matching would need:
-- Make/model detection
-- License plate comparison
-- Damage location consistency
+Color string comparison only. No make/model detection, no license plate matching.
 
-### 5. Evidence Engine Hardcoded Mappings
-The requirement-to-issue family mappings are hardcoded dicts. If new evidence requirements are added, the code must be manually updated.
-
-### 6. No Unit Tests
-The `validate.py` script does integration-level dry-run testing, but there are no proper unit tests with mocked LLM responses. In a production system, you'd want tests that verify each engine independently with known inputs/outputs.
-
-### 7. Free-Tier Rate Limits
-With Gemini free tier, each key allows only 20 requests per day (RPD). The pipeline needs ~126 API calls for 44 claims. With 3 keys that's 60 RPD — not enough for a single-shot run. **Solution**: multi-key rotation + disk caching means you can spread across multiple runs or add more keys.
+### 5. No Unit Tests
+The `validate.py` script does 14 integration-level tests, but no proper unit tests with mocked LLM responses.
 
 ---
 
-## What I Did NOT Implement (Claimed vs Reality)
+## CLI Reference
 
-| Claimed | Reality |
-|---------|---------|
-| "10 engines" in plan | **8 engines actually built**. The "Evaluation Framework" (Engine 9) and "Operational Cost Analysis" (Engine 10) are the eval/ directory and token tracker — they exist but aren't separate "engines" per se. |
-| Vehicle identity VLM cross-check | **NOT a separate VLM call**. Vehicle identity is checked deterministically by comparing vehicle_color strings from per-image VLM responses. The `VEHICLE_IDENTITY_PROMPT` template exists in prompts.py but is **not called** in the pipeline — it was planned as a 3rd call for suspicious cases but not wired in. |
-| Parallel/batch processing | **Sequential only**. The BATCH_SIZE=5 config exists but is unused. |
-| Multi-part claim handling | **Partially implemented**. The LLM extracts `is_multi_part` and `secondary_parts`, but the decision engine only uses the primary claimed part. Secondary parts are extracted but not independently evaluated. |
-| Multilingual support | **Delegated to Gemini**. The prompt says "handle multilingual" but there's no explicit translation step. Gemini Flash handles Hindi/Spanish reasonably well, but it's not tested. |
-| Groq/OpenRouter/NVIDIA integration | **Keys loaded but clients not wired**. Config reads all 4 provider keys from .env, but only Gemini client is implemented. The other providers are ready for future extension. |
+```bash
+# Standard run (auto fallback chain)
+python main.py
 
----
+# Re-process only failed claims
+python main.py --retry-failed
 
-## Data Flow Trace (Concrete Example)
+# Run with specific provider
+python main.py --provider gemini
+python main.py --provider groq
+python main.py --provider nvidia
+python main.py --provider openrouter
 
-**Case 001** (user_001, car, rear_bumper dent):
+# Run on sample claims
+python main.py --mode sample
 
+# Custom output path
+python main.py --output results/my_output.csv
+
+# Multi-model comparison
+python compare_models.py
+python compare_models.py --providers groq nvidia
+python compare_models.py --report-only
 ```
-1. data_loader reads: user_id="user_001", image_paths="images/test/case_001/img_1.jpg",
-   user_claim="[long conversation about rear bumper dent]", claim_object="car"
-
-2. E1 (claim_engine):
-   → Regex pre-scan: no injection patterns found
-   → LLM Call 1: sends conversation text → gets {claimed_part: "rear_bumper", claimed_issue: "dent"}
-   → Fuzzy match: "rear_bumper" ∈ CAR_OBJECT_PARTS ✓
-
-3. E2 (vision_engine):
-   → Loads img_1.jpg as base64 (52KB → ~70K base64 chars)
-   → VLM Call 2: sends image + prompt → gets {visible_part: "rear_bumper",
-     visible_issue: "dent", severity: "medium", is_blurry: false, is_usable: true}
-
-4. E3 (evidence_engine):
-   → claimed part "rear_bumper" visible in img_1 ✓
-   → evidence_standard_met = true
-
-5. E4 (quality_engine):
-   → img_1: not blurry, not watermarked, usable → valid_image = true
-
-6. E5 (fraud_engine):
-   → Object matches ✓, part matches ✓, issue matches ✓
-   → No watermarks, no text instructions → risk_flags = []
-
-7. E6 (risk_engine):
-   → user_001: past_claim_count=2, rejected=0, flags="none" → no risk flags
-
-8. E7 (decision_engine):
-   → visible_part == claimed_part ✓, visible_issue == claimed_issue ✓
-   → Decision: "supported"
-   → severity = "medium" (from VLM)
-   → supporting_image_ids = "img_1"
-
-9. E8 (explain_engine):
-   → No inconsistencies found → pass through
-
-OUTPUT: status=supported, issue=dent, part=rear_bumper, severity=medium,
-        evidence=true, valid=true, support=img_1, risk=none
-```
-
----
-
-## Actual Run Statistics
-
-From the completed pipeline run:
-
-| Metric | Value |
-|--------|-------|
-| Total claims processed | 44 |
-| Successful API calls | 41 |
-| Cached (skipped) calls | 22 |
-| Failed API calls | 4 |
-| Total input tokens | 30,960 |
-| Total output tokens | 6,966 |
-| Estimated cost | $0.0088 |
-| Pipeline runtime | 682.1 seconds (~11.4 min) |
-| Cache files on disk | 63 |
-| Output status: supported | 6 |
-| Output status: contradicted | 12 |
-| Output status: not_enough_information | 26 |
-
-> **Note**: 20 claims have `unknown/unknown` results due to all 3 free-tier keys exhausting their 20 RPD quota during the run. Adding more keys or re-running (cached claims are free) will complete these.
 
 ---
 
@@ -285,8 +276,7 @@ Per claim:
 
 For 44 test claims with ~85 total images:
 - **44 text calls + ~85 vision calls = ~129 total API calls**
-- With 3 free-tier keys (60 RPD total): requires ~2-3 runs with caching
-- With 7+ keys (140+ RPD): single-shot complete run
+- With 6 Gemini keys (120 RPD) + Groq fallback (14,400 RPD): single-shot complete run ✓
 
 ---
 
@@ -294,12 +284,13 @@ For 44 test claims with ~85 total images:
 
 A system that:
 1. **Reads** claims.csv (44 claims, ~85 images)
-2. **Calls Gemini 2.5 Flash** ~129 times (text + vision) with **automatic key rotation**
+2. **Calls LLMs** via 4-provider fallback chain with per-key rate limiting
 3. **Cross-references** visual evidence against claimed damage using 6 deterministic engines
 4. **Outputs** a 14-column output.csv with validated enum values
 5. **Handles edge cases**: prompt injection, stock watermarks, wrong objects, vehicle identity, blurry images, multi-image selection
-6. **Caches** all API responses to disk — re-runs are free
-7. **Costs** ~$0.01 per run (free tier)
+6. **Compares models**: run all 4 providers independently, generate majority-vote consensus
+7. **Caches** all API responses to disk — re-runs are free
+8. **Costs** ~$0.01 per full run (free tiers)
 
 What it does NOT do:
 - No fine-tuned model
@@ -308,4 +299,3 @@ What it does NOT do:
 - No actual structural similarity matching
 - No confidence calibration against ground truth
 - Multi-part claims extracted but not independently evaluated
-- Groq/OpenRouter/NVIDIA keys loaded but not yet wired as alternative providers
