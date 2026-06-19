@@ -78,6 +78,55 @@ ISSUE_OVERRIDES = {
     # Package side → water_damage (VLM over-classifies as crushed)
     ("package", "package_side", "crushed_packaging"): "water_damage",
     
+    # ─── Car hood gaps ────────────────────────────────────────────────────
+    ("car", "hood", "broken_part"): "dent",
+    ("car", "hood", "glass_shatter"): "crack",
+    
+    # ─── Car fender gaps ──────────────────────────────────────────────────
+    ("car", "fender", "dent"): "dent",
+    ("car", "fender", "scratch"): "scratch",
+    ("car", "fender", "broken_part"): "dent",
+    ("car", "fender", "crack"): "crack",
+    
+    # ─── Car body gaps ────────────────────────────────────────────────────
+    ("car", "body", "scratch"): "scratch",
+    ("car", "body", "dent"): "dent",
+    ("car", "body", "broken_part"): "dent",
+    
+    # ─── Car quarter_panel gaps ───────────────────────────────────────────
+    ("car", "quarter_panel", "dent"): "dent",
+    ("car", "quarter_panel", "scratch"): "scratch",
+    ("car", "quarter_panel", "broken_part"): "dent",
+    
+    # ─── Laptop hinge gaps ────────────────────────────────────────────────
+    ("laptop", "hinge", "crack"): "broken_part",
+    ("laptop", "hinge", "broken_part"): "broken_part",
+    ("laptop", "hinge", "dent"): "broken_part",
+    
+    # ─── Laptop port gaps ─────────────────────────────────────────────────
+    ("laptop", "port", "broken_part"): "broken_part",
+    ("laptop", "port", "crack"): "broken_part",
+    ("laptop", "port", "dent"): "broken_part",
+    
+    # ─── Laptop corner gaps ───────────────────────────────────────────────
+    ("laptop", "corner", "dent"): "broken_part",
+    ("laptop", "corner", "broken_part"): "broken_part",
+    ("laptop", "corner", "crack"): "crack",
+    
+    # ─── Package label gaps ───────────────────────────────────────────────
+    ("package", "label", "torn_packaging"): "torn_packaging",
+    ("package", "label", "water_damage"): "water_damage",
+    ("package", "label", "stain"): "stain",
+    
+    # ─── Package contents gaps ────────────────────────────────────────────
+    ("package", "contents", "missing_part"): "missing_part",
+    ("package", "contents", "broken_part"): "missing_part",
+    
+    # ─── Laptop base gaps ─────────────────────────────────────────────────
+    ("laptop", "base", "dent"): "dent",
+    ("laptop", "base", "scratch"): "scratch",
+    ("laptop", "base", "broken_part"): "dent",
+    
 }
 
 # Object-level fallbacks (when part is unknown)

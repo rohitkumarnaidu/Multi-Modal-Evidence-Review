@@ -46,6 +46,28 @@ SEVERITY_OVERRIDES = {
     ("package", "box", "unknown"): "low",
     ("package", "contents", "missing_part"): "medium",
     ("package", "package_side", "stain"): "low",
+    
+    # ─── Car gaps ──────────────────────────────────────────────────────────
+    ("car", "fender", "scratch"): "low",
+    ("car", "fender", "broken_part"): "medium",
+    ("car", "hood", "scratch"): "low",
+    ("car", "hood", "crack"): "medium",
+    ("car", "quarter_panel", "scratch"): "low",
+    ("car", "quarter_panel", "broken_part"): "medium",
+    ("car", "body", "dent"): "medium",
+    
+    # ─── Laptop gaps ───────────────────────────────────────────────────────
+    ("laptop", "hinge", "crack"): "medium",
+    ("laptop", "corner", "broken_part"): "medium",
+    ("laptop", "body", "dent"): "low",
+    ("laptop", "body", "scratch"): "low",
+    ("laptop", "body", "broken_part"): "medium",
+    
+    # ─── Package gaps ──────────────────────────────────────────────────────
+    ("package", "label", "torn_packaging"): "low",
+    ("package", "label", "stain"): "low",
+    ("package", "contents", "broken_part"): "medium",
+    ("package", "contents", "torn_packaging"): "medium",
 }
 
 # Object-level overrides (for when part is unknown)

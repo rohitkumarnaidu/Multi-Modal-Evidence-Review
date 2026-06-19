@@ -304,14 +304,25 @@ def _determine_claim_status(
     if fraud.has_wrong_object and not _any_image_shows_right_object(claim, analyses):
         return "contradicted"
 
-    # Rule 2b: ALL images are non-original (stock photos) → NEI
-    # Stock images of damage don't support the user's actual claim
-    if (
-        fraud.has_non_original_image
-        and quality.get("valid_image", True) == False
-        and visible_issue not in ("none", "unknown")
-    ):
+    # Rule 2b: Non-original images (stock photos) → NEI
+    if fraud.has_non_original_image:
         return "not_enough_information"
+
+    # Rule 2.5: Multi-part claim — each part must have evidence
+    if extraction.is_multi_part and extraction.secondary_parts:
+        parts_to_check = [extraction.claimed_object_part] + extraction.secondary_parts
+        all_parts_have_evidence = True
+        for part in parts_to_check:
+            part_evident = any(
+                (a.visible_object_part == part or part in a.visible_parts_list)
+                and a.is_usable
+                for a in analyses
+            )
+            if not part_evident:
+                all_parts_have_evidence = False
+                break
+        if not all_parts_have_evidence:
+            return "not_enough_information"
 
     # Rule 3: Vehicle identity mismatch
     if fraud.has_vehicle_identity_issue:
@@ -364,8 +375,10 @@ def _determine_claim_status(
         if any_damage_on_claimed_part:
             return "supported"
 
-    # Rule 6: Part visible but NO damage → contradicted
+    # Rule 6: Part visible but NO damage → contradicted (if evidence met)
     if part_visible and visible_issue == "none":
+        if not evidence.evidence_standard_met:
+            return "not_enough_information"
         return "contradicted"
 
     # Rule 7a: Wrong part but damage type matches — supported with visible part
