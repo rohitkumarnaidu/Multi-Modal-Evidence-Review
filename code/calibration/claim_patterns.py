@@ -14,6 +14,8 @@ MULTI_PART_PATTERNS = {
     "along with": "conjunction",
     "plus": "conjunction",
     "also": "also_suffix",
+    "aur": "conjunction",
+    "evam": "conjunction",
 }
 
 CAR_PARTS = {

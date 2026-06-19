@@ -100,6 +100,13 @@ def run_evaluation():
     return eval_metrics
 
 
+def _fmt_num(val):
+    """Format number with commas, or return as-is for strings."""
+    if isinstance(val, (int, float)):
+        return f"{val:,}"
+    return str(val)
+
+
 def _build_operational_analysis(pipeline_metrics: dict) -> str:
     """Build operational analysis section for the report."""
     llm = pipeline_metrics.get("llm_stats", {})
@@ -123,8 +130,8 @@ def _build_operational_analysis(pipeline_metrics: dict) -> str:
         f"- Cached calls: {llm.get('cached_calls', 'N/A')}",
         f"- Failed calls: {llm.get('failed_calls', 'N/A')}\n",
         "## Token Usage\n",
-        f"- Total input tokens: {llm.get('total_input_tokens', 'N/A'):,}",
-        f"- Total output tokens: {llm.get('total_output_tokens', 'N/A'):,}",
+        f"- Total input tokens: {_fmt_num(llm.get('total_input_tokens', 'N/A'))}",
+        f"- Total output tokens: {_fmt_num(llm.get('total_output_tokens', 'N/A'))}",
         f"- Image tokens (estimated): ~258 tokens per image\n",
         "## Cost Estimate\n",
         f"- Estimated cost: ${llm.get('estimated_cost_usd', 'N/A')}",

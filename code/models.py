@@ -183,6 +183,13 @@ class ClaimOutput(BaseModel):
     valid_image: str                  # "true" or "false"
     severity: str                     # none | low | medium | high | unknown
 
+    # Confidence tracking (for ensemble/metadata, not in CSV output)
+    confidence_issue_type: float = 1.0
+    confidence_object_part: float = 1.0
+    confidence_claim_status: float = 1.0
+    confidence_severity: float = 1.0
+    confidence_avg: float = 1.0
+
     @field_validator("claim_status")
     @classmethod
     def validate_claim_status(cls, v: str) -> str:

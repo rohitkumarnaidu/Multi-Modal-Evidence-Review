@@ -144,6 +144,22 @@ def _fuzzy_match_part(raw: str, allowed: set[str]) -> str:
         "product": "item",
         "inside_item": "item",
         "inner_item": "item",
+        # Hindi/regional car parts
+        "gaadi": "car",
+        "bonnet": "hood",
+        "darwaza": "door",
+        "shisha": "windshield",
+        "dikky": "body",
+        "pahiya": "body",
+        "bumper": "front_bumper",
+        "headlight": "headlight",
+        "tailight": "taillight",
+        # Hindi/regional laptop parts
+        "parda": "screen",
+        "chavi": "keyboard",
+        # Hindi/regional package parts
+        "dabba": "box",
+        "sthaniya": "package_side",
     }
     if raw_lower in aliases and aliases[raw_lower] in allowed:
         return aliases[raw_lower]
@@ -176,6 +192,18 @@ def _fuzzy_match_issue(raw: str) -> str:
         "stained": "stain",
         "hail_damage": "dent",
         "hail_dent": "dent",
+        # Hindi/regional
+        "kharoch": "scratch",
+        "kharochna": "scratch",
+        "dent": "dent",
+        "darar": "crack",
+        "tuta": "broken_part",
+        "tuta_hua": "broken_part",
+        "gayab": "missing_part",
+        "fatna": "torn_packaging",
+        "pani": "water_damage",
+        "gilaa": "water_damage",
+        "daag": "stain",
     }
     if raw_lower in aliases:
         return aliases[raw_lower]

@@ -109,6 +109,25 @@ def make_decision(
         severity=severity,
     )
 
+    # Confidence scoring (default = 1.0 for single-provider, updated by ensemble)
+    risk_deduction = 0.0
+    for flag in all_flags:
+        if flag in ("blurry_image", "cropped_or_obstructed", "low_light_or_glare"):
+            risk_deduction = max(risk_deduction, 0.1)
+        elif flag in ("wrong_angle", "damage_not_visible"):
+            risk_deduction = max(risk_deduction, 0.2)
+        elif flag in ("wrong_object", "wrong_object_part"):
+            risk_deduction = max(risk_deduction, 0.3)
+        elif flag in ("possible_manipulation", "non_original_image"):
+            risk_deduction = max(risk_deduction, 0.4)
+
+    base_confidence = 1.0 * (1 - risk_deduction)
+    output.confidence_issue_type = base_confidence
+    output.confidence_object_part = base_confidence
+    output.confidence_claim_status = base_confidence
+    output.confidence_severity = base_confidence
+    output.confidence_avg = base_confidence
+
     logger.info(
         f"Decision for {claim.user_id}: "
         f"status={claim_status}, part={visible_part}, "

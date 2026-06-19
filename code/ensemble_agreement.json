@@ -1,0 +1,60 @@
+{
+  "pairwise_agreement": {
+    "issue_type": {
+      "nvidia_vs_openrouter": 0.7045,
+      "groq_vs_nvidia": 0.5682,
+      "groq_vs_openrouter": 0.5682
+    },
+    "object_part": {
+      "nvidia_vs_openrouter": 0.6591,
+      "groq_vs_nvidia": 0.7045,
+      "groq_vs_openrouter": 0.7045
+    },
+    "claim_status": {
+      "nvidia_vs_openrouter": 0.7727,
+      "groq_vs_nvidia": 0.7045,
+      "groq_vs_openrouter": 0.6591
+    },
+    "severity": {
+      "nvidia_vs_openrouter": 0.6364,
+      "groq_vs_nvidia": 0.6364,
+      "groq_vs_openrouter": 0.5227
+    },
+    "evidence_standard_met": {
+      "nvidia_vs_openrouter": 0.9091,
+      "groq_vs_nvidia": 0.8182,
+      "groq_vs_openrouter": 0.8636
+    },
+    "valid_image": {
+      "nvidia_vs_openrouter": 0.9773,
+      "groq_vs_nvidia": 0.8636,
+      "groq_vs_openrouter": 0.8864
+    }
+  },
+  "majority_agreement": {
+    "nvidia": {
+      "issue_type": 0.9091,
+      "object_part": 0.8636,
+      "claim_status": 0.9318,
+      "severity": 0.9091,
+      "evidence_standard_met": 0.9318,
+      "valid_image": 0.9773
+    },
+    "openrouter": {
+      "issue_type": 0.7955,
+      "object_part": 0.7955,
+      "claim_status": 0.8409,
+      "severity": 0.7273,
+      "evidence_standard_met": 0.9773,
+      "valid_image": 1.0
+    },
+    "groq": {
+      "issue_type": 0.6591,
+      "object_part": 0.8409,
+      "claim_status": 0.7727,
+      "severity": 0.7273,
+      "evidence_standard_met": 0.8864,
+      "valid_image": 0.8864
+    }
+  }
+}
