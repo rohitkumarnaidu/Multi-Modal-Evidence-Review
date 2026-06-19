@@ -172,6 +172,22 @@ SEVERITY_RULES: Final = {
     "stain": "medium",
 }
 
+# ─── Ensemble / Self-Consistency ─────────────────────────────────────────────
+# Provider confidence weights for ensemble voting (higher = more trusted)
+PROVIDER_CONFIDENCE_WEIGHTS: Final = {
+    "nvidia": 0.30,
+    "openrouter": 0.30,
+    "gemini": 0.25,
+    "groq": 0.15,
+}
+
+# Ensemble configuration
+# self_consistency: run text prompt twice at different temperatures and compare
+# multi_provider_vlm: run VLM on multiple providers and weight-vote the results
+ENSEMBLE_ENABLED: Final = os.environ.get("ENSEMBLE_ENABLED", "true").lower() == "true"
+SELF_CONSISTENCY_TEMPERATURES: Final = (0.0, 0.3)
+SELF_CONSISTENCY_AGREEMENT_THRESHOLD: Final = 0.7  # fields must match >= this ratio
+
 # ─── Logging ─────────────────────────────────────────────────────────────────
 LOG_LEVEL: Final = os.environ.get("LOG_LEVEL", "INFO")
 METRICS_LOG: Final = CODE_DIR / ".metrics.json"

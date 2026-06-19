@@ -76,15 +76,22 @@ def analyze_single_image(
                 f"Use this as a hint for visible_object_type."
             )
 
-    # Build prompt and call VLM
+    # Build prompt and call VLM (ensemble mode when enabled)
     prompt = build_image_analysis_prompt(image_id, claim.claim_object, yolo_prior)
     mime_type = get_image_mime_type(image_path)
 
-    result = llm_client.call_vision(
-        prompt=prompt,
-        image_data=[{"mime_type": mime_type, "data": base64_data}],
-        image_paths=[image_path],
-    )
+    if hasattr(llm_client, "call_vision_ensemble"):
+        result = llm_client.call_vision_ensemble(
+            prompt=prompt,
+            image_data=[{"mime_type": mime_type, "data": base64_data}],
+            image_paths=[image_path],
+        )
+    else:
+        result = llm_client.call_vision(
+            prompt=prompt,
+            image_data=[{"mime_type": mime_type, "data": base64_data}],
+            image_paths=[image_path],
+        )
 
     if result is None:
         logger.error(f"VLM analysis failed for {image_id}")

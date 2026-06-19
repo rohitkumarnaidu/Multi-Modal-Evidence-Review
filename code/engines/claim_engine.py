@@ -60,9 +60,12 @@ def extract_claim_with_llm(
     # Step 1: Deterministic pre-scan
     pre_scan = extract_claim_text_only(claim)
 
-    # Step 2: LLM extraction
+    # Step 2: LLM extraction (ensemble with self-consistency when enabled)
     prompt = build_claim_extraction_prompt(claim.user_claim, claim.claim_object)
-    result = llm_client.call_text(prompt)
+    if hasattr(llm_client, "call_text_ensemble"):
+        result = llm_client.call_text_ensemble(prompt)
+    else:
+        result = llm_client.call_text(prompt)
 
     if result is None:
         logger.error(f"LLM claim extraction failed for {claim.user_id}")
