@@ -106,6 +106,9 @@ def analyze_single_image(
     if visible_issue not in ISSUE_TYPES:
         visible_issue = _fuzzy_match_issue(visible_issue)
 
+    # Parse CoT reasoning from VLM result
+    vlm_reasoning = result.get("reasoning", "")
+
     # Parse visible_parts_list from VLM result
     raw_parts = result.get("visible_parts_list", [])
     if isinstance(raw_parts, list):
@@ -128,6 +131,7 @@ def analyze_single_image(
     analysis = ImageAnalysis(
         image_id=image_id,
         image_path=image_path,
+        reasoning=vlm_reasoning,
         visible_object_type=obj_type,
         visible_object_part=visible_part,
         visible_parts_list=visible_parts,

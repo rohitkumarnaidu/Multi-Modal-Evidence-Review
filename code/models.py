@@ -99,6 +99,7 @@ class EvidenceRequirement(BaseModel):
 
 class ClaimExtraction(BaseModel):
     """Output of Engine 1: what the user is actually claiming."""
+    reasoning: str = ""
     claimed_issue_type: str = "unknown"
     claimed_object_part: str = "unknown"
     claimed_severity_hint: str = "unknown"  # user's words, NOT final severity
@@ -113,6 +114,9 @@ class ImageAnalysis(BaseModel):
     """Output of Engine 2 (per-image): what the VLM sees in ONE image."""
     image_id: str
     image_path: str
+
+    # CoT reasoning trace
+    reasoning: str = ""
 
     # What's visible
     visible_object_type: str = "unknown"     # car, laptop, package, other

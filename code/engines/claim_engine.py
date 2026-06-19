@@ -80,6 +80,7 @@ def extract_claim_with_llm(
         claimed_issue = _fuzzy_match_issue(claimed_issue)
 
     extraction = ClaimExtraction(
+        reasoning=result.get("reasoning", ""),
         claimed_issue_type=claimed_issue,
         claimed_object_part=claimed_part,
         claimed_severity_hint=result.get("claimed_severity_hint", "unknown"),
