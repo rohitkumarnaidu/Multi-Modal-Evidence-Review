@@ -1,0 +1,20 @@
+{
+  "mode": "test",
+  "provider": "gemini",
+  "total_claims": 44,
+  "elapsed_seconds": 532.8,
+  "avg_seconds_per_claim": 12.11,
+  "llm_stats": {
+    "total_calls": 44,
+    "cached_calls": 0,
+    "failed_calls": 82,
+    "total_input_tokens": 33168,
+    "total_output_tokens": 7376,
+    "estimated_cost_usd": 0.0094
+  },
+  "cache_stats": {
+    "hits": 0,
+    "misses": 126,
+    "hit_rate": 0.0
+  }
+}

@@ -53,8 +53,8 @@ GEMINI_MODEL: Final = "gemini-2.5-flash"
 GEMINI_TEMPERATURE: Final = 0.0
 GEMINI_MAX_OUTPUT_TOKENS: Final = 4096
 
-GROQ_VISION_MODEL: Final = "meta-llama/llama-4-maverick-17b-128e-instruct"
-GROQ_TEXT_MODEL: Final = "llama-3.3-70b-versatile"
+GROQ_VISION_MODEL: Final = "meta-llama/llama-4-scout-17b-16e-instruct"
+GROQ_TEXT_MODEL: Final = "meta-llama/llama-4-scout-17b-16e-instruct"
 GROQ_BASE_URL: Final = "https://api.groq.com/openai/v1"
 
 OPENROUTER_VISION_MODEL: Final = "google/gemini-2.5-flash"

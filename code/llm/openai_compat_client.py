@@ -33,7 +33,9 @@ class OpenAICompatClient:
     """Client for any OpenAI-compatible API (Groq, OpenRouter, NVIDIA)."""
 
     # Default RPM limits per provider (conservative for free tiers)
-    DEFAULT_RPM = {"groq": 25, "openrouter": 20, "nvidia": 40}
+    DEFAULT_RPM = {"groq": 6, "openrouter": 20, "nvidia": 40}
+    # Providers that support response_format={"type": "json_object"}
+    JSON_FORMAT_PROVIDERS = {"groq", "openrouter"}
 
     def __init__(
         self,
@@ -53,7 +55,12 @@ class OpenAICompatClient:
         from llm.rate_limiter import SimpleRateLimiter
 
         self.provider_name = provider_name
-        self._client = OpenAI(api_key=api_key, base_url=base_url)
+        # Disable OpenAI SDK auto-retries — we handle retries ourselves
+        self._client = OpenAI(
+            api_key=api_key,
+            base_url=base_url,
+            max_retries=0,
+        )
         self.text_model = text_model
         self.vision_model = vision_model
         self.temperature = temperature
@@ -132,10 +139,17 @@ class OpenAICompatClient:
                     # Vision: multimodal content array
                     content_parts = []
                     for img in images:
+                        img_data = img["data"]
+                        img_mime = img["mime_type"]
+                        # Groq has a 4MB request limit — compress large images
+                        if self.provider_name.lower() == "groq":
+                            img_data, img_mime = self._compress_image(
+                                img_data, max_size_bytes=3 * 1024 * 1024
+                            )
                         content_parts.append({
                             "type": "image_url",
                             "image_url": {
-                                "url": f"data:{img['mime_type']};base64,{img['data']}"
+                                "url": f"data:{img_mime};base64,{img_data}"
                             },
                         })
                     content_parts.append({"type": "text", "text": prompt})
@@ -152,15 +166,11 @@ class OpenAICompatClient:
                     "max_tokens": self.max_tokens,
                 }
 
-                # JSON mode — not all providers support response_format
-                # Groq and OpenRouter do, NVIDIA may not for all models
-                try:
+                # JSON mode — only for providers that support it
+                if self.provider_name.lower() in self.JSON_FORMAT_PROVIDERS:
                     kwargs["response_format"] = {"type": "json_object"}
-                    response = self._client.chat.completions.create(**kwargs)
-                except Exception:
-                    # Fallback without response_format
-                    del kwargs["response_format"]
-                    response = self._client.chat.completions.create(**kwargs)
+
+                response = self._client.chat.completions.create(**kwargs)
 
                 # Track tokens
                 if response.usage:
@@ -197,7 +207,21 @@ class OpenAICompatClient:
                 continue
 
             except Exception as e:
-                error_lower = str(e).lower()
+                error_msg = str(e)
+                error_lower = error_msg.lower()
+
+                # 400 client errors (invalid image, bad request) — don't retry
+                is_client_error = "400" in error_lower and (
+                    "invalid" in error_lower
+                    or "bad request" in error_lower
+                )
+                if is_client_error:
+                    logger.error(
+                        f"[{self.provider_name}] Client error (no retry): {error_msg[:200]}"
+                    )
+                    self.failed_calls += 1
+                    return None
+
                 is_quota = (
                     "429" in error_lower
                     or "quota" in error_lower
@@ -229,6 +253,50 @@ class OpenAICompatClient:
 
         self.failed_calls += 1
         return None
+
+    @staticmethod
+    def _compress_image(
+        b64_data: str, max_size_bytes: int = 3 * 1024 * 1024
+    ) -> tuple[str, str]:
+        """Compress base64 image to fit within size limit.
+
+        Returns (compressed_b64, mime_type).
+        """
+        import base64
+        import io
+        from PIL import Image
+
+        raw = base64.b64decode(b64_data)
+
+        # If already small enough, return as-is
+        if len(raw) <= max_size_bytes:
+            return b64_data, "image/jpeg"
+
+        img = Image.open(io.BytesIO(raw))
+        # Resize if very large
+        max_dim = 1024
+        if max(img.size) > max_dim:
+            img.thumbnail((max_dim, max_dim), Image.LANCZOS)
+
+        # Convert to RGB (strip alpha) and compress as JPEG
+        if img.mode in ("RGBA", "P"):
+            img = img.convert("RGB")
+
+        buf = io.BytesIO()
+        quality = 85
+        img.save(buf, format="JPEG", quality=quality)
+
+        # If still too large, reduce quality
+        while buf.tell() > max_size_bytes and quality > 30:
+            buf = io.BytesIO()
+            quality -= 15
+            img.save(buf, format="JPEG", quality=quality)
+
+        compressed = base64.b64encode(buf.getvalue()).decode()
+        logger.debug(
+            f"Image compressed: {len(raw)}B → {buf.tell()}B (q={quality})"
+        )
+        return compressed, "image/jpeg"
 
     @property
     def stats(self) -> dict:

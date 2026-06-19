@@ -19,7 +19,9 @@ env/
 
 # ─── Cache ───────────────────────────────────────────────────────────────────
 code/.cache/
+code/.cache_*/
 .cache/
+.cache_*/
 
 # ─── Logs ────────────────────────────────────────────────────────────────────
 *.log
@@ -34,9 +36,7 @@ code/run.log
 .DS_Store
 Thumbs.db
 
-# ─── Output (regenerated) ───────────────────────────────────────────────────
-dataset/output.csv
-dataset/sample_output.csv
+# ─── Evaluation (regenerated) ────────────────────────────────────────────────
 code/evaluation/evaluation_report.md
 code/evaluation/eval_metrics.json
 code/metrics.json

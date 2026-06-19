@@ -266,17 +266,84 @@ python compare_models.py --providers groq nvidia
 python compare_models.py --report-only
 ```
 
+## Actual Run Statistics (June 19, 2026)
+
+All 4 providers ran independently on the same 44 claims:
+
+### Per-Provider Results
+
+| Provider | Model | Time | API Calls | Failures | Unknowns |
+|----------|-------|------|-----------|----------|----------|
+| **NVIDIA** | `llama-4-maverick-17b-128e` | 384s | 126 | 0 | **0** |
+| **OpenRouter** | `gemini-2.5-flash` | 404s | 127 | 0 | **0** |
+| **Groq** | `llama-4-scout-17b-16e` | 2031s | 116 | 10 | **0** |
+| **Gemini** | `gemini-2.5-flash` | 533s | 44 ok | 82 (RPD) | **28** |
+
+### Status Distribution
+
+| Status | NVIDIA | OpenRouter | Groq | Gemini | Consensus |
+|--------|--------|------------|------|--------|-----------|
+| **supported** | 16 | 18 | 15 | 5 | 15 |
+| **contradicted** | 15 | 15 | 15 | 6 | 11 |
+| **not_enough_information** | 13 | 11 | 14 | 33 | 10 |
+
+> **Note**: Gemini's high `not_enough_information` count (33) is due to 28 claims hitting RPD quota exhaustion and defaulting to unknown. Groq had 10 vision failures from TPD token limit (500K/day).
+
+### Cross-Model Agreement
+
+- **All 4 models agree**: 5/36 claims (13.9%)
+- **claim_status agreement**: 11/36 (30.6%)
+- **issue_type agreement**: 22/36 (61.1%)
+- **object_part agreement**: 21/36 (58.3%)
+- **severity agreement**: 22/36 (61.1%)
+
+### Output Selection
+
+**Primary output (`output.csv`)** = NVIDIA run (0 failures, 0 unknowns, fastest completion).
+**Consensus output** = Majority-vote across all providers with data.
+
 ---
 
-## API Call Count
+## Output Files
 
-Per claim:
-- **1 text-only LLM call** (claim extraction)
-- **N VLM calls** (1 per image, typically 1-2 images per claim)
+| File | Rows | What |
+|------|------|------|
+| `dataset/output.csv` | 44 | **Submission output** (= NVIDIA, best run) |
+| `dataset/output_nvidia.csv` | 44 | NVIDIA standalone (0 failures) |
+| `dataset/output_openrouter.csv` | 44 | OpenRouter standalone (0 failures) |
+| `dataset/output_groq.csv` | 44 | Groq standalone (10 failures) |
+| `dataset/output_gemini.csv` | 44 | Gemini standalone (28 unknown) |
+| `dataset/output_consensus.csv` | 36 | Majority-vote consensus |
+| `dataset/model_comparison.csv` | 36 | Side-by-side per-claim comparison |
 
-For 44 test claims with ~85 total images:
-- **44 text calls + ~85 vision calls = ~129 total API calls**
-- With 6 Gemini keys (120 RPD) + Groq fallback (14,400 RPD): single-shot complete run ✓
+---
+
+## CLI Reference
+
+```bash
+# Standard run (auto fallback chain)
+python main.py
+
+# Re-process only failed claims
+python main.py --retry-failed
+
+# Run with specific provider
+python main.py --provider gemini
+python main.py --provider groq
+python main.py --provider nvidia
+python main.py --provider openrouter
+
+# Run on sample claims
+python main.py --mode sample
+
+# Custom output path
+python main.py --output results/my_output.csv
+
+# Multi-model comparison
+python compare_models.py
+python compare_models.py --providers groq nvidia
+python compare_models.py --report-only
+```
 
 ---
 
@@ -290,7 +357,7 @@ A system that:
 5. **Handles edge cases**: prompt injection, stock watermarks, wrong objects, vehicle identity, blurry images, multi-image selection
 6. **Compares models**: run all 4 providers independently, generate majority-vote consensus
 7. **Caches** all API responses to disk — re-runs are free
-8. **Costs** ~$0.01 per full run (free tiers)
+8. **Costs** ~$0.01 per full run (all free tiers)
 
 What it does NOT do:
 - No fine-tuned model
