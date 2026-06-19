@@ -96,6 +96,11 @@ def _check_part_evidence(
         and a.is_usable
         for a in image_analyses
     )
+    if not right_object_visible:
+        right_object_visible = any(
+            a.visible_object_type == claim.claim_object
+            for a in image_analyses
+        )
 
     all_blurry = all(a.is_blurry for a in image_analyses) if image_analyses else True
     all_unusable = all(not a.is_usable for a in image_analyses) if image_analyses else True
@@ -118,10 +123,16 @@ def _check_part_evidence(
         )
 
     if all_unusable:
-        return EvidenceSufficiency(
-            evidence_standard_met=False,
-            evidence_standard_met_reason="None of the submitted images are usable for review.",
+        # Even if all images have quality issues, we may still have valid
+        # object/part/issue data from VLM. Only reject if truly no data.
+        any_object_info = any(
+            a.visible_object_type != "unknown" for a in image_analyses
         )
+        if not any_object_info:
+            return EvidenceSufficiency(
+                evidence_standard_met=False,
+                evidence_standard_met_reason="None of the submitted images are usable for review.",
+            )
 
     if all_wrong_object:
         return EvidenceSufficiency(
@@ -157,23 +168,37 @@ def _check_part_evidence(
             and a.is_usable
             for a in image_analyses
         )
-        if any_damage_visible:
-            return EvidenceSufficiency(
-                evidence_standard_met=True,
-                evidence_standard_met_reason=(
-                    f"The submitted image is sufficient to see that the visible "
-                    f"damage does not match the claimed {check_part} "
-                    f"{check_issue}."
-                ),
-                matched_requirements=[r.requirement_id for r in applicable_reqs],
+        # Special case: missing_part claims — evidence is met ONLY if the
+        # part is NOT visible (suggesting it might be missing) OR the VLM
+        # explicitly confirms missing_part. If VLM sees the part with
+        # different damage, the missing claim can't be verified.
+        if check_issue == "missing_part":
+            part_visible_with_damage = any(
+                a.visible_object_part == check_part
+                and a.is_usable
+                and a.visible_issue_type not in ("none", "unknown", "missing_part")
+                for a in image_analyses
             )
+            if part_visible_with_damage:
+                return EvidenceSufficiency(
+                    evidence_standard_met=False,
+                    evidence_standard_met_reason=(
+                        f"The image shows the {check_part} with visible damage, "
+                        f"which contradicts the claim that it is missing."
+                    ),
+                )
 
+        # Evidence is sufficient when the correct object type is visible,
+        # even if the specific claimed part is not. The decision engine
+        # determines whether the visible evidence supports or contradicts.
         return EvidenceSufficiency(
-            evidence_standard_met=False,
+            evidence_standard_met=True,
             evidence_standard_met_reason=(
-                f"The image does not show the {check_part}, "
-                f"so the claimed {check_issue} cannot be verified."
+                f"The image shows a {claim.claim_object}, which is sufficient "
+                f"to evaluate whether the claimed {check_part} {check_issue} "
+                f"is supported by the visible evidence."
             ),
+            matched_requirements=[r.requirement_id for r in applicable_reqs],
         )
 
     if check_part in ("contents", "item"):

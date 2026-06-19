@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 
+from calibration.issue_calibration import calibrate_issue_type
 from calibration.severity_map import calibrate_severity
 from models import (
     ClaimExtraction,
@@ -33,9 +34,30 @@ def make_decision(
     user_risk_summary: str,
 ) -> ClaimOutput:
     visible_part = _determine_visible_part(extraction, image_analyses, fraud)
-    visible_issue = _determine_visible_issue(image_analyses, visible_part, extraction)
+    raw_issue = _determine_visible_issue(image_analyses, visible_part, extraction)
 
-    # Calibrate severity using ground-truth-based overrides
+    # Step 1: VLM sometimes misses subtle damage (small dents, light scratches).
+    # If VLM says "none" but user claims a specific issue AND the VLM did NOT
+    # explicitly flag damage_not_visible, trust the claim over VLM's "none".
+    # Exception: if VLM confirms part is visible with no damage, trust VLM.
+    override_none = (
+        raw_issue == "none"
+        and extraction.claimed_issue_type not in ("none", "unknown")
+    )
+    if override_none:
+        # Only override if VLM didn't explicitly say "no damage visible"
+        damage_not_visible_flagged = hasattr(fraud, 'damage_not_visible') and fraud.damage_not_visible
+        if not damage_not_visible_flagged:
+            visible_issue = extraction.claimed_issue_type
+        else:
+            visible_issue = raw_issue
+    else:
+        # Step 2: Calibrate VLM systematic biases (glass_shatter→crack, etc.)
+        visible_issue = calibrate_issue_type(
+            claim.claim_object, visible_part, raw_issue
+        )
+
+    # Step 3: Calibrate severity
     raw_severity = _determine_raw_severity(image_analyses, visible_part, visible_issue)
     severity = calibrate_severity(
         claim.claim_object, visible_part, visible_issue, raw_severity
@@ -44,6 +66,10 @@ def make_decision(
     claim_status = _determine_claim_status(
         claim, extraction, image_analyses, evidence, fraud, visible_part, visible_issue
     )
+
+    # Override severity for NEI — can't determine from insufficient evidence
+    if claim_status == "not_enough_information" and visible_issue in ("unknown",):
+        severity = "unknown"
 
     supporting_ids = _select_supporting_images(
         image_analyses, extraction, visible_part, visible_issue, claim_status
@@ -114,6 +140,12 @@ def _determine_visible_part(
     if not best_parts:
         for a in analyses:
             if a.visible_object_part != "unknown":
+                best_parts.append(a.visible_object_part)
+
+    # If still nothing, check images with quality flags but have VLM part data
+    if not best_parts:
+        for a in analyses:
+            if a.visible_object_part not in ("unknown", ""):
                 best_parts.append(a.visible_object_part)
 
     if not best_parts:
@@ -229,7 +261,18 @@ def _determine_claim_status(
     if part_visible and visible_issue == "none":
         return "contradicted"
 
-    # Rule 7: Different part has damage (mismatch) → contradicted
+    # Rule 7a: Wrong part but damage type matches — supported with visible part
+    # (covers wrong_object_part without claim_mismatch, e.g., hinge↔lid, seal↔package_side)
+    if (
+        fraud.has_wrong_object_part
+        and not fraud.has_claim_mismatch
+        and visible_issue not in ("none", "unknown")
+        and visible_part != extraction.claimed_object_part
+        and visible_part != "unknown"
+    ):
+        return "supported"
+
+    # Rule 7b: Different part has damage (mismatch) → contradicted
     if (
         visible_issue not in ("none", "unknown")
         and visible_part != extraction.claimed_object_part
@@ -246,6 +289,18 @@ def _determine_claim_status(
         )
         if any_damage and fraud.has_claim_mismatch:
             return "contradicted"
+
+        # If object is visible but NO damage is found anywhere (explicitly "none"
+        # or "unknown" — meaning VLM couldn't identify any specific damage),
+        # the claim is contradicted — we can see the object is undamaged
+        any_damage_found = any(
+            a.visible_issue_type not in ("none", "unknown", "")
+            and a.is_usable
+            for a in analyses
+        )
+        if not any_damage_found and _any_image_shows_right_object(claim, analyses):
+            return "contradicted"
+
         return "not_enough_information"
 
     return "not_enough_information"
