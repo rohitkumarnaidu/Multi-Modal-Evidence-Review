@@ -383,14 +383,32 @@ def _check_image_integrity(
     flags: list[str],
     fraud: FraudSignals,
 ):
-    """Cross-image integrity checks: EXIF manipulation, near-duplicate detection."""
+    """Cross-image integrity checks: EXIF manipulation, near-duplicate detection, ELA."""
     usable = [a for a in analyses if a.is_usable]
     if not usable:
         return
 
+    # EXIF manipulation flag
     any_edited = any(a.is_edited for a in usable)
     if any_edited and "possible_manipulation" not in flags:
         flags.append("possible_manipulation")
+
+    # ELA anomaly detection (splicing/tampering)
+    any_ela_anomaly = any(getattr(a, 'ela_anomaly', False) for a in usable)
+    if any_ela_anomaly and "possible_manipulation" not in flags:
+        flags.append("possible_manipulation")
+        ela_diffs = [getattr(a, 'ela_mean_diff', 0) for a in usable if getattr(a, 'ela_anomaly', False)]
+        logger.warning(f"ELA anomalies detected: mean_diffs={ela_diffs}")
+
+    # Camera model consistency check
+    camera_models = [getattr(a, 'exif_camera_model', '') for a in usable if getattr(a, 'exif_camera_model', '')]
+    if len(set(camera_models)) > 1:
+        logger.warning(
+            f"Multiple camera models across images: {set(camera_models)} "
+            f"— possible composite evidence"
+        )
+        if "possible_manipulation" not in flags:
+            flags.append("possible_manipulation")
 
     image_paths = [a.image_path for a in usable if a.image_path]
     if len(image_paths) >= 2:

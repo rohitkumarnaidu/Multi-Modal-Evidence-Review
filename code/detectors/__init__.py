@@ -2,3 +2,5 @@ from detectors.cv_quality import analyze_image_quality
 from detectors.perceptual_hash import compute_phash, find_duplicates
 from detectors.exif_analyzer import analyze_exif
 from detectors.yolo_detector import detect_objects
+from detectors.ela import analyze_ela
+from detectors.part_matcher import match_part

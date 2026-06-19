@@ -148,6 +148,10 @@ class ImageAnalysis(BaseModel):
     exif_datetime: str = ""
     exif_camera_model: str = ""
 
+    # ELA (Error Level Analysis)
+    ela_anomaly: bool = False
+    ela_mean_diff: float = 0.0
+
     # Relevance to claim
     shows_claimed_part: bool = False
     shows_claimed_damage: bool = False

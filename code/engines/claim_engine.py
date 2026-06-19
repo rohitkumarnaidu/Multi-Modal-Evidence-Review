@@ -107,12 +107,15 @@ def extract_claim_with_llm(
 
 
 def _fuzzy_match_part(raw: str, allowed: set[str]) -> str:
-    """Best-effort normalization of object_part to allowed values."""
+    """Best-effort normalization of object_part to allowed values.
+    
+    Uses alias table → partial string match → sentence transformer embedding
+    match (for synonyms and multilingual).
+    """
     raw_lower = raw.lower().strip().replace(" ", "_")
     if raw_lower in allowed:
         return raw_lower
 
-    # Common aliases
     aliases = {
         "bumper_front": "front_bumper",
         "bumper_rear": "rear_bumper",
@@ -148,7 +151,6 @@ def _fuzzy_match_part(raw: str, allowed: set[str]) -> str:
         "product": "item",
         "inside_item": "item",
         "inner_item": "item",
-        # Hindi/regional car parts
         "gaadi": "car",
         "bonnet": "hood",
         "darwaza": "door",
@@ -158,10 +160,8 @@ def _fuzzy_match_part(raw: str, allowed: set[str]) -> str:
         "bumper": "front_bumper",
         "headlight": "headlight",
         "tailight": "taillight",
-        # Hindi/regional laptop parts
         "parda": "screen",
         "chavi": "keyboard",
-        # Hindi/regional package parts
         "dabba": "box",
         "sthaniya": "package_side",
     }
@@ -172,6 +172,15 @@ def _fuzzy_match_part(raw: str, allowed: set[str]) -> str:
     for part in allowed:
         if part in raw_lower or raw_lower in part:
             return part
+
+    # Sentence transformer fallback for synonyms/multilingual
+    try:
+        from detectors.part_matcher import match_part
+        matched, score = match_part(raw_lower, allowed, threshold=0.55)
+        if matched != raw_lower and matched in allowed:
+            return matched
+    except Exception:
+        pass
 
     return "unknown"
 

@@ -20,6 +20,7 @@ from typing import Optional
 from config import ISSUE_TYPES, OBJECT_PARTS_BY_TYPE, STOCK_IMAGE_MARKERS
 from data_loader import get_image_mime_type, load_image_as_base64
 from detectors.cv_quality import analyze_image_quality
+from detectors.ela import analyze_ela
 from detectors.exif_analyzer import analyze_exif
 from detectors.yolo_detector import detect_objects
 from engines.claim_engine import _fuzzy_match_part, _fuzzy_match_issue
@@ -55,6 +56,7 @@ def analyze_single_image(
     # Run classical CV pre-check (fast, no API call)
     cv_quality = analyze_image_quality(image_path)
     exif_data = analyze_exif(image_path)
+    ela_result = analyze_ela(image_path)
 
     # Run YOLO for deterministic object detection prior
     yolo_result = detect_objects(image_path)
@@ -157,6 +159,8 @@ def analyze_single_image(
         is_edited=exif_data.get("is_edited", False),
         exif_datetime=exif_data.get("datetime_original", ""),
         exif_camera_model=exif_data.get("camera_model", ""),
+        ela_anomaly=ela_result.get("has_anomaly", False),
+        ela_mean_diff=ela_result.get("ela_mean_diff", 0.0),
         has_text_instruction=result.get("has_text_instruction", False),
         text_instruction_content=result.get("text_instruction_content", ""),
         is_usable=result.get("is_usable", True),
