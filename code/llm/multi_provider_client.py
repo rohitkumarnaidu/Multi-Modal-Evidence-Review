@@ -53,38 +53,24 @@ class MultiProviderClient:
         self.provider_usage: dict[str, int] = {}  # provider → success count
         self.only_provider = only_provider
 
-        # ── Provider 1: Gemini (multi-key rotation) ───────────────────────
-        # ── Provider 1: Gemini (multi-key rotation) ───────────────────────
-        if GEMINI_API_KEYS and (not only_provider or only_provider == "gemini"):
-            from llm.gemini_client import GeminiClient
-            try:
-                gemini = GeminiClient()
-                gemini.cache = self.cache  # Share cache across providers
-                self.providers.append(("gemini", gemini))
-                logger.info(
-                    f"[MultiProvider] Gemini enabled ({len(GEMINI_API_KEYS)} keys)"
-                )
-            except Exception as e:
-                logger.warning(f"[MultiProvider] Gemini init failed: {e}")
-
-        # ── Provider 2: Groq ─────────────────────────────────────────────
-        if GROQ_API_KEY and (not only_provider or only_provider == "groq"):
+        # ── Provider 1: NVIDIA (unlimited credits, 40 RPM — best first) ───
+        if NVIDIA_API_KEY and (not only_provider or only_provider == "nvidia"):
             from llm.openai_compat_client import OpenAICompatClient
             try:
-                groq = OpenAICompatClient(
-                    provider_name="groq",
-                    api_key=GROQ_API_KEY,
-                    base_url=GROQ_BASE_URL,
-                    text_model=GROQ_TEXT_MODEL,
-                    vision_model=GROQ_VISION_MODEL,
+                nvidia = OpenAICompatClient(
+                    provider_name="nvidia",
+                    api_key=NVIDIA_API_KEY,
+                    base_url=NVIDIA_BASE_URL,
+                    text_model=NVIDIA_TEXT_MODEL,
+                    vision_model=NVIDIA_VISION_MODEL,
                     cache=self.cache,
                 )
-                self.providers.append(("groq", groq))
-                logger.info("[MultiProvider] Groq enabled")
+                self.providers.append(("nvidia", nvidia))
+                logger.info("[MultiProvider] NVIDIA enabled")
             except Exception as e:
-                logger.warning(f"[MultiProvider] Groq init failed: {e}")
+                logger.warning(f"[MultiProvider] NVIDIA init failed: {e}")
 
-        # ── Provider 3: OpenRouter ───────────────────────────────────────
+        # ── Provider 2: OpenRouter (20 RPM, 200+ RPD free, good accuracy) ─
         if OPENROUTER_API_KEY and (not only_provider or only_provider == "openrouter"):
             from llm.openai_compat_client import OpenAICompatClient
             try:
@@ -101,22 +87,35 @@ class MultiProviderClient:
             except Exception as e:
                 logger.warning(f"[MultiProvider] OpenRouter init failed: {e}")
 
-        # ── Provider 4: NVIDIA ───────────────────────────────────────────
-        if NVIDIA_API_KEY and (not only_provider or only_provider == "nvidia"):
+        # ── Provider 3: Gemini (6 keys × 5 RPM / 20 RPD — fallback) ──────
+        if GEMINI_API_KEYS and (not only_provider or only_provider == "gemini"):
+            from llm.gemini_client import GeminiClient
+            try:
+                gemini = GeminiClient()
+                gemini.cache = self.cache
+                self.providers.append(("gemini", gemini))
+                logger.info(
+                    f"[MultiProvider] Gemini enabled ({len(GEMINI_API_KEYS)} keys)"
+                )
+            except Exception as e:
+                logger.warning(f"[MultiProvider] Gemini init failed: {e}")
+
+        # ── Provider 4: Groq (25 RPM, TPD limited — last resort) ─────────
+        if GROQ_API_KEY and (not only_provider or only_provider == "groq"):
             from llm.openai_compat_client import OpenAICompatClient
             try:
-                nvidia = OpenAICompatClient(
-                    provider_name="nvidia",
-                    api_key=NVIDIA_API_KEY,
-                    base_url=NVIDIA_BASE_URL,
-                    text_model=NVIDIA_TEXT_MODEL,
-                    vision_model=NVIDIA_VISION_MODEL,
+                groq = OpenAICompatClient(
+                    provider_name="groq",
+                    api_key=GROQ_API_KEY,
+                    base_url=GROQ_BASE_URL,
+                    text_model=GROQ_TEXT_MODEL,
+                    vision_model=GROQ_VISION_MODEL,
                     cache=self.cache,
                 )
-                self.providers.append(("nvidia", nvidia))
-                logger.info("[MultiProvider] NVIDIA enabled")
+                self.providers.append(("groq", groq))
+                logger.info("[MultiProvider] Groq enabled")
             except Exception as e:
-                logger.warning(f"[MultiProvider] NVIDIA init failed: {e}")
+                logger.warning(f"[MultiProvider] Groq init failed: {e}")
 
         if not self.providers:
             raise ValueError(

@@ -120,6 +120,7 @@ class ImageAnalysis(BaseModel):
     visible_issue_type: str = "none"         # damage type visible
     visible_severity: str = "unknown"        # from visual evidence
     vehicle_color: str = ""                  # for car identity matching
+    vehicle_type: str = ""                   # sedan, SUV, truck, etc.
 
     # Quality & trust
     is_blurry: bool = False

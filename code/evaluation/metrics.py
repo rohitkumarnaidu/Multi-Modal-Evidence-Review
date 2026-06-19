@@ -1,7 +1,8 @@
 """
 Evaluation Metrics for Multi-Modal Evidence Review.
 
-Per-field accuracy metrics comparing predictions against ground truth.
+Per-field accuracy metrics with partial credit for ordinal and
+hierarchical fields.
 """
 
 from __future__ import annotations
@@ -18,7 +19,6 @@ def exact_match_accuracy(
     ground_truth: list[str],
     field_name: str = "",
 ) -> dict:
-    """Compute exact match accuracy for a single field."""
     assert len(predictions) == len(ground_truth), (
         f"Length mismatch: {len(predictions)} vs {len(ground_truth)}"
     )
@@ -26,7 +26,6 @@ def exact_match_accuracy(
     total = len(predictions)
     accuracy = correct / total if total > 0 else 0.0
 
-    # Error analysis
     errors = []
     for i, (p, g) in enumerate(zip(predictions, ground_truth)):
         if p.strip().lower() != g.strip().lower():
@@ -41,7 +40,120 @@ def exact_match_accuracy(
         "accuracy": round(accuracy, 4),
         "correct": correct,
         "total": total,
-        "errors": errors[:10],  # Top 10 errors
+        "errors": errors[:10],
+    }
+
+
+def partial_credit_severity(
+    predictions: list[str],
+    ground_truth: list[str],
+) -> dict:
+    """Compute accuracy with partial credit for ordinal severity.
+
+    Score matrix:
+      identical → 1.0
+      adjacent (low↔medium, medium↔high) → 0.5
+      two apart (low↔high) → 0.25
+      extreme (none↔high, none↔low → 0.0)
+      unknown mismatch → 0.0
+    """
+    severity_distance = {
+        ("none", "none"): 1.0, ("none", "low"): 0.5, ("none", "medium"): 0.25, ("none", "high"): 0.0, ("none", "unknown"): 0.0,
+        ("low", "none"): 0.5, ("low", "low"): 1.0, ("low", "medium"): 0.5, ("low", "high"): 0.25, ("low", "unknown"): 0.0,
+        ("medium", "none"): 0.25, ("medium", "low"): 0.5, ("medium", "medium"): 1.0, ("medium", "high"): 0.5, ("medium", "unknown"): 0.0,
+        ("high", "none"): 0.0, ("high", "low"): 0.25, ("high", "medium"): 0.5, ("high", "high"): 1.0, ("high", "unknown"): 0.0,
+        ("unknown", "none"): 0.0, ("unknown", "low"): 0.0, ("unknown", "medium"): 0.0, ("unknown", "high"): 0.0, ("unknown", "unknown"): 1.0,
+    }
+
+    scores = []
+    per_row = []
+    for i, (p, g) in enumerate(zip(predictions, ground_truth)):
+        p = p.strip().lower()
+        g = g.strip().lower()
+        score = severity_distance.get((p, g), 0.0)
+        scores.append(score)
+        per_row.append({
+            "index": i,
+            "predicted": p,
+            "expected": g,
+            "score": score,
+        })
+
+    avg = sum(scores) / max(1, len(scores))
+    return {
+        "partial_credit_accuracy": round(avg, 4),
+        "exact_match_accuracy": round(sum(1 for s in scores if s == 1.0) / max(1, len(scores)), 4),
+        "average_score": round(avg, 4),
+        "per_row": [r for r in per_row if r["score"] < 1.0][:10],
+    }
+
+
+def partial_credit_object_part(
+    predictions: list[str],
+    ground_truth: list[str],
+) -> dict:
+    """Compute accuracy with partial credit for object_part.
+
+    Same object type, same category → 0.5
+    Same part → 1.0
+    Different → 0.0
+    """
+    car_exterior = {"front_bumper", "rear_bumper", "door", "hood", "windshield", "fender", "body"}
+    car_lighting = {"headlight", "taillight", "side_mirror"}
+    car_quarter = {"quarter_panel"}
+    car_parts = car_exterior | car_lighting | car_quarter
+
+    laptop_display = {"screen", "lid"}
+    laptop_input = {"keyboard", "trackpad"}
+    laptop_structure = {"hinge", "corner", "port", "base", "body"}
+    laptop_parts = laptop_display | laptop_input | laptop_structure
+
+    package_exterior = {"box", "package_corner", "package_side"}
+    package_closure = {"seal", "label"}
+    package_inner = {"contents", "item"}
+    package_parts = package_exterior | package_closure | package_inner
+
+    part_categories = {
+        "car": [car_exterior, car_lighting, car_quarter],
+        "laptop": [laptop_display, laptop_input, laptop_structure],
+        "package": [package_exterior, package_closure, package_inner],
+    }
+
+    def same_category(a: str, b: str) -> bool:
+        for obj, categories in part_categories.items():
+            for cat in categories:
+                if a in cat and b in cat:
+                    return True
+        return False
+
+    scores = []
+    per_row = []
+    for i, (p, g) in enumerate(zip(predictions, ground_truth)):
+        p = p.strip().lower()
+        g = g.strip().lower()
+
+        if p == g:
+            score = 1.0
+        elif p == "unknown" or g == "unknown":
+            score = 0.0
+        elif same_category(p, g):
+            score = 0.5
+        else:
+            score = 0.0
+
+        scores.append(score)
+        per_row.append({
+            "index": i,
+            "predicted": p,
+            "expected": g,
+            "score": score,
+        })
+
+    avg = sum(scores) / max(1, len(scores))
+    return {
+        "partial_credit_accuracy": round(avg, 4),
+        "exact_match_accuracy": round(sum(1 for s in scores if s == 1.0) / max(1, len(scores)), 4),
+        "per_row": [r for r in per_row if r["score"] < 1.0][:10],
     }
 
 
@@ -49,10 +161,6 @@ def risk_flags_f1(
     pred_flags: list[str],
     true_flags: list[str],
 ) -> dict:
-    """Compute F1 score for multi-label risk flags.
-    
-    Each entry is a semicolon-separated string of flags.
-    """
     total_precision_num = 0
     total_precision_den = 0
     total_recall_num = 0
@@ -96,7 +204,7 @@ def risk_flags_f1(
         "micro_recall": round(micro_recall, 4),
         "micro_f1": round(micro_f1, 4),
         "macro_f1": round(macro_f1, 4),
-        "per_row": [r for r in per_row if r["f1"] < 1.0][:10],  # Show errors
+        "per_row": [r for r in per_row if r["f1"] < 1.0][:10],
     }
 
 
@@ -105,7 +213,6 @@ def confusion_matrix(
     ground_truth: list[str],
     field_name: str = "",
 ) -> dict:
-    """Build confusion matrix for categorical fields."""
     all_labels = sorted(set(
         [p.strip().lower() for p in predictions]
         + [g.strip().lower() for g in ground_truth]
@@ -126,7 +233,6 @@ def supporting_images_jaccard(
     pred_ids: list[str],
     true_ids: list[str],
 ) -> dict:
-    """Compute Jaccard similarity for supporting_image_ids."""
     scores = []
     for p, t in zip(pred_ids, true_ids):
         pred_set = _parse_flags(p)
@@ -152,13 +258,8 @@ def compute_all_metrics(
     predictions: list[dict],
     ground_truth: list[dict],
 ) -> dict:
-    """Compute all metrics across all fields.
-    
-    predictions and ground_truth are lists of dicts with column names as keys.
-    """
     results = {}
 
-    # Key categorical fields
     for field in [
         "claim_status", "issue_type", "object_part",
         "evidence_standard_met", "valid_image", "severity",
@@ -172,12 +273,22 @@ def compute_all_metrics(
             pred_vals, true_vals, field
         )
 
-    # Risk flags (multi-label)
+    # Partial credit for severity (ordinal)
+    pred_sev = [str(p.get("severity", "")).strip().lower() for p in predictions]
+    true_sev = [str(g.get("severity", "")).strip().lower() for g in ground_truth]
+    results["severity_partial_credit"] = partial_credit_severity(pred_sev, true_sev)
+
+    # Partial credit for object_part (hierarchical)
+    pred_part = [str(p.get("object_part", "")).strip().lower() for p in predictions]
+    true_part = [str(g.get("object_part", "")).strip().lower() for g in ground_truth]
+    results["object_part_partial_credit"] = partial_credit_object_part(pred_part, true_part)
+
+    # Risk flags
     pred_flags = [str(p.get("risk_flags", "none")) for p in predictions]
     true_flags = [str(g.get("risk_flags", "none")) for g in ground_truth]
     results["risk_flags_f1"] = risk_flags_f1(pred_flags, true_flags)
 
-    # Supporting image IDs (Jaccard)
+    # Supporting image IDs
     pred_ids = [str(p.get("supporting_image_ids", "none")) for p in predictions]
     true_ids = [str(g.get("supporting_image_ids", "none")) for g in ground_truth]
     results["supporting_images_jaccard"] = supporting_images_jaccard(pred_ids, true_ids)
@@ -186,7 +297,6 @@ def compute_all_metrics(
 
 
 def _parse_flags(flags_str: str) -> set[str]:
-    """Parse semicolon-separated flags into a set."""
     flags_str = flags_str.strip().lower()
     if flags_str in ("none", ""):
         return set()
@@ -194,10 +304,8 @@ def _parse_flags(flags_str: str) -> set[str]:
 
 
 def format_report(metrics: dict) -> str:
-    """Format metrics into a readable markdown report."""
     lines = ["# Evaluation Results\n"]
 
-    # Summary table
     lines.append("## Accuracy Summary\n")
     lines.append("| Field | Accuracy | Correct / Total |")
     lines.append("|-------|----------|-----------------|")
@@ -208,19 +316,27 @@ def format_report(metrics: dict) -> str:
                 f"| {m['field']} | {m['accuracy']:.1%} | {m['correct']}/{m['total']} |"
             )
 
-    # Risk flags F1
+    # Partial credit
+    if "severity_partial_credit" in metrics:
+        sc = metrics["severity_partial_credit"]
+        lines.append(f"\n## Severity Partial Credit: {sc['partial_credit_accuracy']:.4f} "
+                      f"(exact: {sc['exact_match_accuracy']:.4f})")
+
+    if "object_part_partial_credit" in metrics:
+        oc = metrics["object_part_partial_credit"]
+        lines.append(f"\n## Object Part Partial Credit: {oc['partial_credit_accuracy']:.4f} "
+                      f"(exact: {oc['exact_match_accuracy']:.4f})")
+
     if "risk_flags_f1" in metrics:
         rf = metrics["risk_flags_f1"]
         lines.append(f"\n## Risk Flags F1")
         lines.append(f"- Micro F1: {rf['micro_f1']:.4f}")
         lines.append(f"- Macro F1: {rf['macro_f1']:.4f}")
 
-    # Supporting images Jaccard
     if "supporting_images_jaccard" in metrics:
         sj = metrics["supporting_images_jaccard"]
         lines.append(f"\n## Supporting Images Jaccard: {sj['avg_jaccard']:.4f}")
 
-    # Error details
     lines.append("\n## Error Details\n")
     for key in sorted(metrics.keys()):
         if key.endswith("_accuracy"):

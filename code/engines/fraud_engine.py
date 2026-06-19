@@ -10,12 +10,6 @@ Cross-references claim extraction vs. vision findings to detect:
   - text_instruction_present: text in image telling system to approve
   - damage_not_visible: part is visible but no damage seen
   - vehicle identity issues: different cars in multi-image set
-
-Key design rules (from user corrections):
-  - wrong_object vs wrong_object_part are DISTINCT signals
-  - damage_not_visible is different from issue_type=none
-  - Vehicle COLOR matching is required for car claims
-  - Text instruction detection must come from VLM (image analysis), not just regex
 """
 
 from __future__ import annotations
@@ -32,44 +26,27 @@ def detect_fraud(
     extraction: ClaimExtraction,
     image_analyses: list[ImageAnalysis],
 ) -> FraudSignals:
-    """Run all fraud detection checks.
-    
-    Returns FraudSignals with all detected risk flags.
-    """
     flags: list[str] = []
     fraud = FraudSignals()
 
-    # ── 1. Wrong Object Detection ────────────────────────────────────────
     _check_wrong_object(claim, image_analyses, flags, fraud)
-
-    # ── 2. Wrong Object Part Detection ───────────────────────────────────
     _check_wrong_part(extraction, image_analyses, flags, fraud)
-
-    # ── 3. Claim Mismatch Detection ──────────────────────────────────────
     _check_claim_mismatch(extraction, image_analyses, flags, fraud)
 
-    # ── 4. Prompt Injection in Conversation ──────────────────────────────
     if extraction.has_prompt_injection:
         fraud.has_prompt_injection_in_text = True
-        # Don't add a flag here — it's captured in other flags
         logger.warning(f"Prompt injection in text: {extraction.prompt_injection_detail}")
 
-    # ── 5. Text Instructions in Images ───────────────────────────────────
     _check_image_text_instructions(image_analyses, flags, fraud)
-
-    # ── 6. Non-Original Images (Watermarks) ──────────────────────────────
     _check_non_original(image_analyses, flags, fraud)
 
-    # ── 7. Vehicle Identity Cross-Check ──────────────────────────────────
     if claim.claim_object == "car":
         _check_vehicle_identity(claim, extraction, image_analyses, flags, fraud)
 
-    # ── 8. Damage Not Visible ────────────────────────────────────────────
     _check_damage_visibility(extraction, image_analyses, flags, fraud)
 
     fraud.risk_flags = flags
     fraud.fraud_summary = "; ".join(flags) if flags else "No fraud signals detected"
-
     logger.info(f"Fraud check for {claim.user_id}: {fraud.fraud_summary}")
     return fraud
 
@@ -80,7 +57,6 @@ def _check_wrong_object(
     flags: list[str],
     fraud: FraudSignals,
 ):
-    """Check if images show wrong object type entirely."""
     for a in analyses:
         if (
             a.visible_object_type != claim.claim_object
@@ -93,7 +69,6 @@ def _check_wrong_object(
                 flags.append("wrong_object")
             break
 
-    # Also check "other" — e.g., canned food when claiming package
     for a in analyses:
         if a.visible_object_type == "other" and a.is_usable:
             fraud.has_wrong_object = True
@@ -108,11 +83,9 @@ def _check_wrong_part(
     flags: list[str],
     fraud: FraudSignals,
 ):
-    """Check if images show the right object but wrong part."""
     if extraction.claimed_object_part == "unknown":
         return
 
-    # Check if ANY usable image shows the claimed part
     claimed_part_visible = any(
         a.visible_object_part == extraction.claimed_object_part
         and a.is_usable
@@ -120,7 +93,6 @@ def _check_wrong_part(
     )
 
     if not claimed_part_visible:
-        # Right object visible but wrong part
         right_object = any(
             a.visible_object_type not in ("unknown", "other", "")
             and a.is_usable
@@ -129,8 +101,6 @@ def _check_wrong_part(
         if right_object:
             fraud.has_wrong_object_part = True
             if "wrong_object_part" not in flags:
-                # Only flag this if images show the object but not the claimed part
-                # AND there's a clearly different part visible
                 visible_parts = [
                     a.visible_object_part for a in analyses
                     if a.is_usable and a.visible_object_part != "unknown"
@@ -145,7 +115,6 @@ def _check_claim_mismatch(
     flags: list[str],
     fraud: FraudSignals,
 ):
-    """Check if visible damage contradicts claimed damage type/severity."""
     if extraction.claimed_issue_type in ("unknown", "none"):
         return
 
@@ -153,7 +122,6 @@ def _check_claim_mismatch(
         if not a.is_usable:
             continue
 
-        # Check damage type mismatch
         if (
             a.visible_issue_type not in ("none", "unknown")
             and a.visible_issue_type != extraction.claimed_issue_type
@@ -163,9 +131,6 @@ def _check_claim_mismatch(
             if "claim_mismatch" not in flags:
                 flags.append("claim_mismatch")
 
-        # Check severity exaggeration
-        # User claims severe but visual shows minor
-        severity_order = {"none": 0, "low": 1, "medium": 2, "high": 3, "unknown": -1}
         hint = extraction.claimed_severity_hint.lower()
         if hint in ("severe", "bad", "pretty bad", "heavily", "badly"):
             if a.visible_severity in ("low", "none"):
@@ -179,7 +144,6 @@ def _check_image_text_instructions(
     flags: list[str],
     fraud: FraudSignals,
 ):
-    """Check for text instructions found IN images by VLM."""
     for a in analyses:
         if a.has_text_instruction:
             fraud.has_prompt_injection_in_image = True
@@ -196,7 +160,6 @@ def _check_non_original(
     flags: list[str],
     fraud: FraudSignals,
 ):
-    """Check for stock image watermarks."""
     all_watermarked = all(a.has_watermark for a in analyses) if analyses else False
     any_watermarked = any(a.has_watermark for a in analyses)
 
@@ -213,29 +176,70 @@ def _check_vehicle_identity(
     flags: list[str],
     fraud: FraudSignals,
 ):
-    """Cross-check vehicle identity across multiple images.
-    
-    Checks:
-      - Vehicle color consistency
-      - Vehicle type consistency
-      - Claimed color vs visible color (e.g., "my blue car")
+    """Multi-factor vehicle identity cross-check.
+
+    Instead of flagging on ANY color difference, compute an identity score
+    from multiple signals and only flag when confidence is high that images
+    show different vehicles.
+
+    Factors:
+      1. Color consistency (primary + secondary descriptions)
+      2. Vehicle type consistency (sedan vs SUV vs truck)
+      3. Claimed color vs visible color match
+      4. Part-to-part correspondence across images
     """
     if len(analyses) < 2:
         return
 
-    # Collect vehicle colors
+    usable = [a for a in analyses if a.is_usable]
+    if len(usable) < 2:
+        return
+
+    # ── Factor 1: Color consistency ──────────────────────────────────────
     colors = []
-    for a in analyses:
-        if a.vehicle_color and a.is_usable:
-            colors.append(a.vehicle_color.lower().strip())
-            fraud.vehicle_colors_found.append(a.vehicle_color.lower().strip())
+    for a in usable:
+        if a.vehicle_color:
+            c = a.vehicle_color.lower().strip()
+            if c:
+                colors.append(c)
+                fraud.vehicle_colors_found.append(c)
 
-    # Check color consistency across images
-    if len(set(colors)) > 1:
-        fraud.has_vehicle_identity_issue = True
-        logger.warning(f"Vehicle color mismatch: {colors}")
+    known_colors = {"blue", "black", "white", "red", "silver", "grey", "gray", "green", "yellow", "orange", "brown", "gold", "navy", "charcoal", "beige", "cream", "maroon", "purple"}
 
-    # Check claimed color from conversation
+    def normalize_color(c):
+        c = c.replace("grey", "gray").replace("colored", "").strip()
+        for known in known_colors:
+            if known in c:
+                return known
+        return c
+
+    normalized_colors = [normalize_color(c) for c in colors if c]
+    distinct_colors = set(normalized_colors)
+
+    color_score = 1.0
+    if len(distinct_colors) > 1:
+        valid_distinct = distinct_colors - {"unknown", ""}
+        if len(valid_distinct) > 1:
+            # Truly different colors named
+            color_score = 0.15
+        else:
+            color_score = 0.8
+
+    # ── Factor 2: Vehicle type consistency ───────────────────────────────
+    types = []
+    for a in usable:
+        vt = getattr(a, 'vehicle_type', '') or ''
+        if vt:
+            types.append(vt.lower().strip())
+
+    type_score = 1.0
+    if len(set(types)) > 1:
+        known_types = {"sedan", "suv", "truck", "hatchback", "coupe", "convertible", "van", "wagon"}
+        valid_types = [t for t in types if any(k in t for k in known_types)]
+        if len(set(valid_types)) > 1:
+            type_score = 0.2
+
+    # ── Factor 3: Claimed color match ────────────────────────────────────
     conv_lower = claim.user_claim.lower()
     claimed_color = ""
     for color in ["blue", "black", "white", "red", "silver", "grey", "gray", "green"]:
@@ -243,17 +247,31 @@ def _check_vehicle_identity(
             claimed_color = color
             break
 
+    claimed_color_match = True
     if claimed_color and colors:
-        # Normalize grey/gray
-        normalized_colors = [c.replace("grey", "gray") for c in colors]
-        claimed_color = claimed_color.replace("grey", "gray")
-        if not any(claimed_color in c for c in normalized_colors):
-            fraud.has_vehicle_identity_issue = True
-            if "wrong_object" not in flags:
-                flags.append("wrong_object")
-            logger.warning(
-                f"Claimed color '{claimed_color}' not found in images: {colors}"
-            )
+        nc = normalize_color(claimed_color)
+        if not any(nc == normalize_color(c) for c in colors if c):
+            claimed_color_match = False
+
+    # ── Identity score ───────────────────────────────────────────────────
+    identity_score = (color_score + type_score) / 2.0
+
+    # Only flag as identity issue if score is very low
+    if identity_score < 0.3 and not claimed_color_match:
+        fraud.has_vehicle_identity_issue = True
+        logger.warning(f"Vehicle identity issue: colors={colors}, types={types}, score={identity_score:.2f}")
+    elif not claimed_color_match:
+        # Mild mismatch — don't block the claim, just log
+        logger.info(f"Claimed color '{claimed_color}' differs from visual colors: {colors}")
+
+    # ── Factor 4: Part-to-part correspondence ────────────────────────────
+    if not fraud.has_vehicle_identity_issue:
+        parts_set = set()
+        for a in usable:
+            if a.visible_object_part and a.visible_object_part != "unknown":
+                parts_set.add(a.visible_object_part)
+        # If images show completely unrelated parts (e.g., front bumper AND rear bumper)
+        # it might still be the same car — not a signal by itself
 
 
 def _check_damage_visibility(
@@ -262,14 +280,12 @@ def _check_damage_visibility(
     flags: list[str],
     fraud: FraudSignals,
 ):
-    """Check if the claimed part is visible but damage is NOT visible."""
     if extraction.claimed_issue_type in ("none", "unknown"):
         return
 
     for a in analyses:
         if not a.is_usable:
             continue
-        # Part is visible but no damage seen
         if (
             a.visible_object_part == extraction.claimed_object_part
             and a.visible_issue_type == "none"

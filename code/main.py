@@ -2,23 +2,6 @@
 Multi-Modal Evidence Review — Main Orchestrator.
 
 Entry point for processing all claims in claims.csv → output.csv.
-
-Pipeline per claim:
-  1. Load claim data, user history, evidence requirements
-  2. Engine 1: Claim extraction (text-only LLM call)
-  3. Engine 2: Per-image vision analysis (VLM call per image)
-  4. Engine 3: Evidence sufficiency check (deterministic)
-  5. Engine 4: Image quality assessment (deterministic)
-  6. Engine 5: Fraud detection (deterministic cross-reference)
-  7. Engine 6: User risk propagation (deterministic)
-  8. Engine 7: Decision aggregation
-  9. Engine 8: Explainability polish
-  10. Write output.csv
-
-Two-call design:
-  - Call 1: LLM text-only for claim extraction
-  - Call 2: VLM per-image for vision analysis (N calls for N images)
-  - All other engines are deterministic
 """
 
 from __future__ import annotations
@@ -28,9 +11,9 @@ import logging
 import os
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-# Add code/ to path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from config import (
@@ -59,7 +42,6 @@ from engines.vision_engine import analyze_all_images
 from llm.multi_provider_client import MultiProviderClient
 from models import ClaimOutput
 
-# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -79,7 +61,6 @@ def process_single_claim(
     claim_index: int,
     total_claims: int,
 ) -> ClaimOutput:
-    """Process a single claim through the full 8-engine pipeline."""
     logger.info(
         f"Processing claim {claim_index + 1}/{total_claims}: "
         f"user={claim.user_id}, object={claim.claim_object}, "
@@ -87,15 +68,12 @@ def process_single_claim(
     )
 
     try:
-        # ── Engine 1: Claim Extraction (LLM Call 1) ──────────────────────
         extraction = extract_claim_with_llm(claim, llm_client)
         logger.info(f"  → Extracted: part={extraction.claimed_object_part}, issue={extraction.claimed_issue_type}")
 
-        # ── Engine 2: Per-Image Vision Analysis (VLM Calls) ──────────────
         image_analyses = analyze_all_images(claim, llm_client)
         logger.info(f"  → Analyzed {len(image_analyses)} images")
 
-        # Mark which images show the claimed part and damage
         for a in image_analyses:
             a.shows_claimed_part = (
                 a.visible_object_part == extraction.claimed_object_part
@@ -105,27 +83,22 @@ def process_single_claim(
                 and a.visible_issue_type not in ("none", "unknown")
             )
 
-        # ── Engine 3: Evidence Sufficiency (Deterministic) ───────────────
         evidence = check_evidence_sufficiency(
             claim, extraction, image_analyses, evidence_requirements
         )
         logger.info(f"  → Evidence met: {evidence.evidence_standard_met}")
 
-        # ── Engine 4: Image Quality (Deterministic) ──────────────────────
         quality = assess_image_quality(image_analyses)
         logger.info(f"  → Valid image: {quality['valid_image']}")
 
-        # ── Engine 5: Fraud Detection (Deterministic) ────────────────────
         fraud = detect_fraud(claim, extraction, image_analyses)
         logger.info(f"  → Fraud flags: {fraud.risk_flags}")
 
-        # ── Engine 6: User Risk (Deterministic) ─────────────────────────
         user_history = user_history_map.get(claim.user_id)
         user_risk_flags = get_user_risk_flags(user_history)
         user_risk_summary = get_risk_summary(user_history)
         logger.info(f"  → User risk flags: {user_risk_flags}")
 
-        # ── Engine 7: Decision (Deterministic Aggregation) ───────────────
         output = make_decision(
             claim=claim,
             extraction=extraction,
@@ -137,7 +110,6 @@ def process_single_claim(
             user_risk_summary=user_risk_summary,
         )
 
-        # ── Engine 8: Explainability Polish ──────────────────────────────
         output = polish_output(output)
 
         logger.info(
@@ -149,7 +121,6 @@ def process_single_claim(
 
     except Exception as e:
         logger.error(f"  ✗ Error processing claim {claim.user_id}: {e}", exc_info=True)
-        # Return safe fallback
         return ClaimOutput(
             user_id=claim.user_id,
             image_paths=claim.image_paths,
@@ -174,46 +145,34 @@ def run_pipeline(
     mode: str = "test",
     retry_failed: bool = False,
     provider: str | None = None,
+    parallel: bool = False,
+    max_workers: int = 4,
 ):
-    """Run the full pipeline on all claims.
-    
-    Args:
-        claims_csv: Path to input claims CSV
-        output_csv: Path for output CSV
-        mode: "test" for claims.csv, "sample" for sample_claims.csv
-        retry_failed: If True, only re-process claims that previously failed
-        provider: If set, force a specific provider (gemini/groq/openrouter/nvidia)
-    """
     start_time = time.time()
     logger.info("=" * 60)
     logger.info(f"Multi-Modal Evidence Review Pipeline")
     logger.info(f"Mode: {mode}")
     logger.info(f"Provider: {provider or 'auto (fallback chain)'}")
+    logger.info(f"Parallel: {parallel} (workers={max_workers})")
     logger.info(f"Input: {claims_csv}")
     logger.info(f"Output: {output_csv}")
     logger.info("=" * 60)
 
-    # ── Load data ────────────────────────────────────────────────────────
     claims = load_claims(claims_csv)
     user_history = load_user_history()
     evidence_reqs = load_evidence_requirements()
 
     logger.info(f"Loaded {len(claims)} claims, {len(user_history)} user histories, {len(evidence_reqs)} requirements")
 
-    # ── Initialize LLM client (multi-provider fallback or single) ────────
     llm_client = MultiProviderClient(only_provider=provider)
 
-    # When running per-provider comparison, use a separate cache directory
-    # so each model sees fresh images (no cross-model cache hits)
     if provider:
         from llm.cache import ResponseCache
         provider_cache_dir = CODE_DIR / f".cache_{provider}"
         llm_client.cache = ResponseCache(cache_dir=provider_cache_dir)
-        # Also set on child providers
         for _, client in llm_client.providers:
             client.cache = llm_client.cache
 
-    # ── Load existing results for retry-failed mode ──────────────────────
     existing_results: dict[str, ClaimOutput] = {}
     if retry_failed and output_csv.exists():
         import csv
@@ -221,13 +180,11 @@ def run_pipeline(
             reader = csv.DictReader(f)
             for row in reader:
                 uid = row.get("user_id", "")
-                # Mark as "needs retry" if issue_type and object_part are both unknown
                 is_failed = (
                     row.get("issue_type") == "unknown"
                     and row.get("object_part") == "unknown"
                 )
                 if uid and not is_failed:
-                    # Keep successful results — rebuild ClaimOutput
                     existing_results[uid] = ClaimOutput(
                         user_id=uid,
                         image_paths=row.get("image_paths", ""),
@@ -250,42 +207,88 @@ def run_pipeline(
                 f"re-processing {len(claims) - len(existing_results)} failed claims"
             )
 
-    # ── Process claims ───────────────────────────────────────────────────
     outputs: list[ClaimOutput] = []
     total = len(claims)
 
-    for i, claim in enumerate(claims):
-        # Skip already-successful claims in retry-failed mode
-        if retry_failed and claim.user_id in existing_results:
-            outputs.append(existing_results[claim.user_id])
-            logger.info(
-                f"Skipping claim {i + 1}/{total}: {claim.user_id} (already successful)"
+    if parallel:
+        claims_to_process = []
+        for claim in claims:
+            if retry_failed and claim.user_id in existing_results:
+                outputs.append(existing_results[claim.user_id])
+                logger.info(f"Skipping {claim.user_id} (already successful)")
+            else:
+                claims_to_process.append(claim)
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_map = {}
+            for i, claim in enumerate(claims_to_process):
+                future = executor.submit(
+                    process_single_claim,
+                    claim=claim,
+                    user_history_map=user_history,
+                    evidence_requirements=evidence_reqs,
+                    llm_client=llm_client,
+                    claim_index=i,
+                    total_claims=total,
+                )
+                future_map[future] = claim
+
+            for future in as_completed(future_map):
+                claim = future_map[future]
+                try:
+                    output = future.result()
+                    outputs.append(output)
+                except Exception as e:
+                    logger.error(f"Parallel processing error for {claim.user_id}: {e}")
+                    outputs.append(ClaimOutput(
+                        user_id=claim.user_id,
+                        image_paths=claim.image_paths,
+                        user_claim=claim.user_claim,
+                        claim_object=claim.claim_object,
+                        evidence_standard_met="false",
+                        evidence_standard_met_reason=f"Processing error: {str(e)[:100]}",
+                        risk_flags="manual_review_required",
+                        issue_type="unknown",
+                        object_part="unknown",
+                        claim_status="not_enough_information",
+                        claim_status_justification="The claim could not be processed automatically.",
+                        supporting_image_ids="none",
+                        valid_image="false",
+                        severity="unknown",
+                    ))
+
+        outputs.sort(key=lambda o: claims.index(next(c for c in claims if c.user_id == o.user_id)))
+    else:
+        for i, claim in enumerate(claims):
+            if retry_failed and claim.user_id in existing_results:
+                outputs.append(existing_results[claim.user_id])
+                logger.info(
+                    f"Skipping claim {i + 1}/{total}: {claim.user_id} (already successful)"
+                )
+                continue
+
+            output = process_single_claim(
+                claim=claim,
+                user_history_map=user_history,
+                evidence_requirements=evidence_reqs,
+                llm_client=llm_client,
+                claim_index=i,
+                total_claims=total,
             )
-            continue
+            outputs.append(output)
 
-        output = process_single_claim(
-            claim=claim,
-            user_history_map=user_history,
-            evidence_requirements=evidence_reqs,
-            llm_client=llm_client,
-            claim_index=i,
-            total_claims=total,
-        )
-        outputs.append(output)
+            if i < total - 1:
+                time.sleep(INTER_CLAIM_DELAY)
 
-        # Brief pause between claims to respect rate limits
-        if i < total - 1:
-            time.sleep(INTER_CLAIM_DELAY)
-
-    # ── Write output ─────────────────────────────────────────────────────
     rows = [o.to_csv_row() for o in outputs]
     write_output_csv(rows, output_csv)
 
-    # ── Log metrics ──────────────────────────────────────────────────────
     elapsed = time.time() - start_time
     metrics = {
         "mode": mode,
         "provider": provider or "auto",
+        "parallel": parallel,
+        "max_workers": max_workers if parallel else 1,
         "total_claims": total,
         "elapsed_seconds": round(elapsed, 2),
         "avg_seconds_per_claim": round(elapsed / max(1, total), 2),
@@ -298,7 +301,6 @@ def run_pipeline(
     logger.info(f"Multi-Provider Stats: {json.dumps(llm_client.stats, indent=2)}")
     logger.info("=" * 60)
 
-    # Save metrics
     metrics_path = METRICS_LOG if not provider else (CODE_DIR / f".metrics_{provider}.json")
     try:
         with open(metrics_path, "w", encoding="utf-8") as f:
@@ -310,7 +312,6 @@ def run_pipeline(
 
 
 def main():
-    """Main entry point."""
     import argparse
 
     parser = argparse.ArgumentParser(description="Multi-Modal Evidence Review")
@@ -335,7 +336,18 @@ def main():
         "--provider",
         choices=["gemini", "groq", "openrouter", "nvidia"],
         default=None,
-        help="Force a specific LLM provider (for model comparison)",
+        help="Force a specific LLM provider",
+    )
+    parser.add_argument(
+        "--parallel",
+        action="store_true",
+        help="Process claims in parallel using ThreadPoolExecutor",
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=4,
+        help="Number of parallel workers (default: 4)",
     )
     args = parser.parse_args()
 
@@ -357,9 +369,10 @@ def main():
         mode=args.mode,
         retry_failed=args.retry_failed,
         provider=args.provider,
+        parallel=args.parallel,
+        max_workers=args.workers,
     )
 
 
 if __name__ == "__main__":
     main()
-

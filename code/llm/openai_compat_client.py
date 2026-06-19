@@ -33,7 +33,7 @@ class OpenAICompatClient:
     """Client for any OpenAI-compatible API (Groq, OpenRouter, NVIDIA)."""
 
     # Default RPM limits per provider (conservative for free tiers)
-    DEFAULT_RPM = {"groq": 6, "openrouter": 20, "nvidia": 40}
+    DEFAULT_RPM = {"groq": 25, "openrouter": 20, "nvidia": 40}
     # Providers that support response_format={"type": "json_object"}
     JSON_FORMAT_PROVIDERS = {"groq", "openrouter"}
 
