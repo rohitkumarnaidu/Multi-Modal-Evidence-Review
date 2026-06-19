@@ -41,15 +41,21 @@ class MultiProviderClient:
 
     Same interface as GeminiClient: call_text() and call_vision().
     Internally tries providers in priority order until one succeeds.
+
+    Args:
+        only_provider: If set, only initialize this provider (for model comparison).
+                      Options: "gemini", "groq", "openrouter", "nvidia"
     """
 
-    def __init__(self):
+    def __init__(self, only_provider: str | None = None):
         self.cache = ResponseCache()
         self.providers = []
         self.provider_usage: dict[str, int] = {}  # provider → success count
+        self.only_provider = only_provider
 
         # ── Provider 1: Gemini (multi-key rotation) ───────────────────────
-        if GEMINI_API_KEYS:
+        # ── Provider 1: Gemini (multi-key rotation) ───────────────────────
+        if GEMINI_API_KEYS and (not only_provider or only_provider == "gemini"):
             from llm.gemini_client import GeminiClient
             try:
                 gemini = GeminiClient()
@@ -62,7 +68,7 @@ class MultiProviderClient:
                 logger.warning(f"[MultiProvider] Gemini init failed: {e}")
 
         # ── Provider 2: Groq ─────────────────────────────────────────────
-        if GROQ_API_KEY:
+        if GROQ_API_KEY and (not only_provider or only_provider == "groq"):
             from llm.openai_compat_client import OpenAICompatClient
             try:
                 groq = OpenAICompatClient(
@@ -79,7 +85,7 @@ class MultiProviderClient:
                 logger.warning(f"[MultiProvider] Groq init failed: {e}")
 
         # ── Provider 3: OpenRouter ───────────────────────────────────────
-        if OPENROUTER_API_KEY:
+        if OPENROUTER_API_KEY and (not only_provider or only_provider == "openrouter"):
             from llm.openai_compat_client import OpenAICompatClient
             try:
                 openrouter = OpenAICompatClient(
@@ -96,7 +102,7 @@ class MultiProviderClient:
                 logger.warning(f"[MultiProvider] OpenRouter init failed: {e}")
 
         # ── Provider 4: NVIDIA ───────────────────────────────────────────
-        if NVIDIA_API_KEY:
+        if NVIDIA_API_KEY and (not only_provider or only_provider == "nvidia"):
             from llm.openai_compat_client import OpenAICompatClient
             try:
                 nvidia = OpenAICompatClient(

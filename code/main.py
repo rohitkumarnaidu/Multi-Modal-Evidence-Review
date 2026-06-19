@@ -173,6 +173,7 @@ def run_pipeline(
     output_csv: Path = OUTPUT_CSV,
     mode: str = "test",
     retry_failed: bool = False,
+    provider: str | None = None,
 ):
     """Run the full pipeline on all claims.
     
@@ -181,11 +182,13 @@ def run_pipeline(
         output_csv: Path for output CSV
         mode: "test" for claims.csv, "sample" for sample_claims.csv
         retry_failed: If True, only re-process claims that previously failed
+        provider: If set, force a specific provider (gemini/groq/openrouter/nvidia)
     """
     start_time = time.time()
     logger.info("=" * 60)
     logger.info(f"Multi-Modal Evidence Review Pipeline")
     logger.info(f"Mode: {mode}")
+    logger.info(f"Provider: {provider or 'auto (fallback chain)'}")
     logger.info(f"Input: {claims_csv}")
     logger.info(f"Output: {output_csv}")
     logger.info("=" * 60)
@@ -197,8 +200,18 @@ def run_pipeline(
 
     logger.info(f"Loaded {len(claims)} claims, {len(user_history)} user histories, {len(evidence_reqs)} requirements")
 
-    # ── Initialize LLM client (multi-provider fallback) ────────────────
-    llm_client = MultiProviderClient()
+    # ── Initialize LLM client (multi-provider fallback or single) ────────
+    llm_client = MultiProviderClient(only_provider=provider)
+
+    # When running per-provider comparison, use a separate cache directory
+    # so each model sees fresh images (no cross-model cache hits)
+    if provider:
+        from llm.cache import ResponseCache
+        provider_cache_dir = CODE_DIR / f".cache_{provider}"
+        llm_client.cache = ResponseCache(cache_dir=provider_cache_dir)
+        # Also set on child providers
+        for _, client in llm_client.providers:
+            client.cache = llm_client.cache
 
     # ── Load existing results for retry-failed mode ──────────────────────
     existing_results: dict[str, ClaimOutput] = {}
@@ -272,6 +285,7 @@ def run_pipeline(
     elapsed = time.time() - start_time
     metrics = {
         "mode": mode,
+        "provider": provider or "auto",
         "total_claims": total,
         "elapsed_seconds": round(elapsed, 2),
         "avg_seconds_per_claim": round(elapsed / max(1, total), 2),
@@ -285,8 +299,9 @@ def run_pipeline(
     logger.info("=" * 60)
 
     # Save metrics
+    metrics_path = METRICS_LOG if not provider else (CODE_DIR / f".metrics_{provider}.json")
     try:
-        with open(METRICS_LOG, "w", encoding="utf-8") as f:
+        with open(metrics_path, "w", encoding="utf-8") as f:
             json.dump(metrics, f, indent=2)
     except Exception as e:
         logger.warning(f"Could not save metrics: {e}")
@@ -316,6 +331,12 @@ def main():
         action="store_true",
         help="Only re-process claims that previously failed (unknown/unknown)",
     )
+    parser.add_argument(
+        "--provider",
+        choices=["gemini", "groq", "openrouter", "nvidia"],
+        default=None,
+        help="Force a specific LLM provider (for model comparison)",
+    )
     args = parser.parse_args()
 
     if args.mode == "sample":
@@ -323,15 +344,22 @@ def main():
         output_csv = Path(args.output) if args.output else (DATASET_DIR / "sample_output.csv")
     else:
         claims_csv = CLAIMS_CSV
-        output_csv = Path(args.output) if args.output else OUTPUT_CSV
+        if args.output:
+            output_csv = Path(args.output)
+        elif args.provider:
+            output_csv = DATASET_DIR / f"output_{args.provider}.csv"
+        else:
+            output_csv = OUTPUT_CSV
 
     run_pipeline(
         claims_csv=claims_csv,
         output_csv=output_csv,
         mode=args.mode,
         retry_failed=args.retry_failed,
+        provider=args.provider,
     )
 
 
 if __name__ == "__main__":
     main()
+

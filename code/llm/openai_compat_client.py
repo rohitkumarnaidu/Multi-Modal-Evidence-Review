@@ -33,7 +33,7 @@ class OpenAICompatClient:
     """Client for any OpenAI-compatible API (Groq, OpenRouter, NVIDIA)."""
 
     # Default RPM limits per provider (conservative for free tiers)
-    DEFAULT_RPM = {"groq": 25, "openrouter": 20, "nvidia": 15}
+    DEFAULT_RPM = {"groq": 25, "openrouter": 20, "nvidia": 40}
 
     def __init__(
         self,
