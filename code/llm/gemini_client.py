@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from config import (
-    GEMINI_API_KEY,
+    GEMINI_API_KEYS,
     GEMINI_MAX_OUTPUT_TOKENS,
     GEMINI_MODEL,
     GEMINI_TEMPERATURE,
@@ -75,14 +75,16 @@ class GeminiClient:
     """Gemini API client with retries, caching, and structured output."""
 
     def __init__(self):
-        if not GEMINI_API_KEY:
+        if not GEMINI_API_KEYS:
             raise ValueError(
-                "GEMINI_API_KEY not set. Set it via environment variable."
+                "No Gemini API keys found. Set GEMINI_API_KEYS via environment variables."
             )
         from google import genai
 
         self._genai = genai
-        self._client = genai.Client(api_key=GEMINI_API_KEY)
+        self.keys = GEMINI_API_KEYS
+        self.current_key_idx = 0
+        self._client = genai.Client(api_key=self.keys[self.current_key_idx])
         self.cache = ResponseCache()
         self.tracker = TokenTracker()
         self._last_call_time = 0.0
@@ -224,6 +226,23 @@ class GeminiClient:
                 continue
 
             except Exception as e:
+                error_msg = str(e).lower()
+                # Check for rate limit or quota exhaustion (429)
+                if "429" in error_msg or "quota" in error_msg or "exhausted" in error_msg:
+                    if len(self.keys) > 1:
+                        # Rotate key
+                        self.current_key_idx = (self.current_key_idx + 1) % len(self.keys)
+                        logger.warning(
+                            f"Quota limit hit on key index {(self.current_key_idx - 1) % len(self.keys)}. "
+                            f"Rotating to key index {self.current_key_idx} ({len(self.keys)} total keys)."
+                        )
+                        self._client = self._genai.Client(api_key=self.keys[self.current_key_idx])
+                        # Reset attempt counter to allow full retries on new key
+                        attempt -= 1 
+                        continue
+                    else:
+                        logger.warning(f"Quota limit hit but only 1 key configured. Waiting...")
+
                 delay = min(
                     RETRY_BASE_DELAY * (2**attempt),
                     RETRY_MAX_DELAY,

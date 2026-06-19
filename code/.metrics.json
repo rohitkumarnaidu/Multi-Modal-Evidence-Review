@@ -1,0 +1,19 @@
+{
+  "mode": "test",
+  "total_claims": 44,
+  "elapsed_seconds": 682.14,
+  "avg_seconds_per_claim": 15.5,
+  "llm_stats": {
+    "total_calls": 41,
+    "cached_calls": 22,
+    "failed_calls": 4,
+    "total_input_tokens": 30960,
+    "total_output_tokens": 6966,
+    "estimated_cost_usd": 0.0088
+  },
+  "cache_stats": {
+    "hits": 22,
+    "misses": 104,
+    "hit_rate": 0.1746031746031746
+  }
+}

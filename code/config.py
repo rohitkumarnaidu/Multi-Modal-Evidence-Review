@@ -40,7 +40,14 @@ OUTPUT_CSV: Final = DATASET_DIR / "output.csv"
 CACHE_DIR: Final = CODE_DIR / ".cache"
 
 # ─── API Configuration ───────────────────────────────────────────────────────
-GEMINI_API_KEY: str = os.environ.get("GEMINI_API_KEY", "")
+# Support multiple keys for free-tier rate limit rotation
+_gemini_keys_raw = os.environ.get("GEMINI_API_KEYS", os.environ.get("GEMINI_API_KEY", ""))
+GEMINI_API_KEYS: list[str] = [k.strip() for k in _gemini_keys_raw.split(",") if k.strip()]
+
+GROQ_API_KEY: str = os.environ.get("GROQ_API_KEY", "")
+OPENROUTER_API_KEY: str = os.environ.get("OPENROUTER_API_KEY", "")
+NVIDIA_API_KEY: str = os.environ.get("NVIDIA_API_KEY", "")
+
 GEMINI_MODEL: Final = "gemini-2.5-flash"
 GEMINI_TEMPERATURE: Final = 0.0
 GEMINI_MAX_OUTPUT_TOKENS: Final = 4096
