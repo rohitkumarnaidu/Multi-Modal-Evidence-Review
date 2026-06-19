@@ -44,6 +44,7 @@ def assess_image_quality(
     any_low_light = False
     any_wrong_angle = False
     any_text_instruction = False
+    any_edited = False
     all_non_original = True
 
     for a in image_analyses:
@@ -63,6 +64,8 @@ def assess_image_quality(
             all_non_original = False
         if a.has_text_instruction:
             any_text_instruction = True
+        if a.is_edited:
+            any_edited = True
 
     # Build quality flags
     if any_blurry:
@@ -77,11 +80,10 @@ def assess_image_quality(
         quality_flags.append("text_instruction_present")
     if any_has_watermark and all_non_original:
         quality_flags.append("non_original_image")
+    if any_edited and "possible_manipulation" not in quality_flags:
+        quality_flags.append("possible_manipulation")
 
     # Determine valid_image
-    # valid_image = false ONLY when images are completely unusable
-    # Key insight from sample: watermarked stock images → valid_image=false
-    # But blurry with a clear backup → valid_image=true
     valid_image = True
     if not any_usable:
         valid_image = False

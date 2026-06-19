@@ -19,6 +19,8 @@ from typing import Optional
 
 from config import ISSUE_TYPES, OBJECT_PARTS_BY_TYPE, STOCK_IMAGE_MARKERS
 from data_loader import get_image_mime_type, load_image_as_base64
+from detectors.cv_quality import analyze_image_quality
+from detectors.exif_analyzer import analyze_exif
 from engines.claim_engine import _fuzzy_match_part, _fuzzy_match_issue
 from models import ClaimInput, ImageAnalysis
 
@@ -48,6 +50,10 @@ def analyze_single_image(
             damage_description="Image could not be loaded.",
             confidence=0.0,
         )
+
+    # Run classical CV pre-check (fast, no API call)
+    cv_quality = analyze_image_quality(image_path)
+    exif_data = analyze_exif(image_path)
 
     # Build prompt and call VLM
     prompt = build_image_analysis_prompt(image_id, claim.claim_object)
@@ -79,6 +85,7 @@ def analyze_single_image(
     if visible_issue not in ISSUE_TYPES:
         visible_issue = _fuzzy_match_issue(visible_issue)
 
+    # Merge CV quality with VLM results (CV overrides for objective metrics)
     analysis = ImageAnalysis(
         image_id=image_id,
         image_path=image_path,
@@ -87,12 +94,14 @@ def analyze_single_image(
         visible_issue_type=visible_issue,
         visible_severity=_normalize_severity(result.get("visible_severity", "unknown")),
         vehicle_color=result.get("vehicle_color", ""),
-        is_blurry=result.get("is_blurry", False),
-        is_low_light=result.get("is_low_light", False),
-        is_cropped=result.get("is_cropped", False),
-        has_wrong_angle=result.get("has_wrong_angle", False),
+        is_blurry=cv_quality.get("is_blurry", False) or result.get("is_blurry", False),
+        is_low_light=cv_quality.get("is_low_light", False) or result.get("is_low_light", False),
+        is_cropped=cv_quality.get("is_cropped", False) or result.get("is_cropped", False),
+        has_wrong_angle=cv_quality.get("has_wrong_angle", False) or result.get("has_wrong_angle", False),
         has_watermark=result.get("has_watermark", False),
         watermark_text=result.get("watermark_text", ""),
+        has_exif=exif_data.get("has_exif", False),
+        is_edited=exif_data.get("is_edited", False),
         has_text_instruction=result.get("has_text_instruction", False),
         text_instruction_content=result.get("text_instruction_content", ""),
         is_usable=result.get("is_usable", True),

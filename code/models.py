@@ -133,6 +133,10 @@ class ImageAnalysis(BaseModel):
     text_instruction_content: str = ""
     is_usable: bool = True
 
+    # EXIF / metadata
+    has_exif: bool = False
+    is_edited: bool = False
+
     # Relevance to claim
     shows_claimed_part: bool = False
     shows_claimed_damage: bool = False

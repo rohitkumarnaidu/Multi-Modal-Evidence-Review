@@ -118,7 +118,8 @@ RISK_FLAGS: Final = frozenset({
     "none", "blurry_image", "cropped_or_obstructed", "low_light_or_glare",
     "wrong_angle", "wrong_object", "wrong_object_part", "damage_not_visible",
     "claim_mismatch", "possible_manipulation", "non_original_image",
-    "text_instruction_present", "user_history_risk", "manual_review_required",
+    "text_instruction_present", "duplicate_image", "user_history_risk",
+    "manual_review_required",
 })
 
 SEVERITIES: Final = frozenset({"none", "low", "medium", "high", "unknown"})

@@ -46,6 +46,7 @@ def detect_fraud(
 
     _check_unknown_object(claim, extraction, image_analyses, flags, fraud)
     _check_damage_visibility(extraction, image_analyses, flags, fraud)
+    _check_image_integrity(image_analyses, claim, flags, fraud)
 
     fraud.risk_flags = flags
     fraud.fraud_summary = "; ".join(flags) if flags else "No fraud signals detected"
@@ -367,3 +368,42 @@ def _check_damage_visibility(
             if "damage_not_visible" not in flags:
                 flags.append("damage_not_visible")
             break
+
+
+def _check_image_integrity(
+    analyses: list[ImageAnalysis],
+    claim: ClaimInput,
+    flags: list[str],
+    fraud: FraudSignals,
+):
+    """Cross-image integrity checks: EXIF manipulation, near-duplicate detection."""
+    usable = [a for a in analyses if a.is_usable]
+    if not usable:
+        return
+
+    # Check EXIF manipulation flags across images
+    any_edited = any(a.is_edited for a in usable)
+    if any_edited and "possible_manipulation" not in flags:
+        flags.append("possible_manipulation")
+
+    # Near-duplicate detection via perceptual hash
+    image_paths = [a.image_path for a in usable if a.image_path]
+    if len(image_paths) >= 2:
+        from detectors.perceptual_hash import find_duplicates, max_phash_distance
+
+        duplicates = find_duplicates(image_paths)
+        if duplicates:
+            logger.warning(
+                f"Near-duplicate images detected: {len(duplicates)} pair(s)"
+            )
+            if "duplicate_image" not in flags:
+                flags.append("duplicate_image")
+
+        # Vehicle identity via phash (for car claims)
+        if claim.claim_object == "car":
+            max_dist = max_phash_distance(image_paths)
+            if max_dist is not None and max_dist > 20:
+                logger.warning(
+                    f"Large perceptual distance ({max_dist}) between images "
+                    f"— possible different vehicles"
+                )
