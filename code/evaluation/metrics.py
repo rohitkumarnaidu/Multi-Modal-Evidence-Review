@@ -2,13 +2,16 @@
 Evaluation Metrics for Multi-Modal Evidence Review.
 
 Per-field accuracy metrics with partial credit for ordinal and
-hierarchical fields.
+hierarchical fields. Generates HTML reports with confusion matrices.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 from collections import Counter
+from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -48,15 +51,6 @@ def partial_credit_severity(
     predictions: list[str],
     ground_truth: list[str],
 ) -> dict:
-    """Compute accuracy with partial credit for ordinal severity.
-
-    Score matrix:
-      identical → 1.0
-      adjacent (low↔medium, medium↔high) → 0.5
-      two apart (low↔high) → 0.25
-      extreme (none↔high, none↔low → 0.0)
-      unknown mismatch → 0.0
-    """
     severity_distance = {
         ("none", "none"): 1.0, ("none", "low"): 0.5, ("none", "medium"): 0.25, ("none", "high"): 0.0, ("none", "unknown"): 0.0,
         ("low", "none"): 0.5, ("low", "low"): 1.0, ("low", "medium"): 0.5, ("low", "high"): 0.25, ("low", "unknown"): 0.0,
@@ -92,12 +86,6 @@ def partial_credit_object_part(
     predictions: list[str],
     ground_truth: list[str],
 ) -> dict:
-    """Compute accuracy with partial credit for object_part.
-
-    Same object type, same category → 0.5
-    Same part → 1.0
-    Different → 0.0
-    """
     car_exterior = {"front_bumper", "rear_bumper", "door", "hood", "windshield", "fender", "body"}
     car_lighting = {"headlight", "taillight", "side_mirror"}
     car_quarter = {"quarter_panel"}
@@ -273,22 +261,18 @@ def compute_all_metrics(
             pred_vals, true_vals, field
         )
 
-    # Partial credit for severity (ordinal)
     pred_sev = [str(p.get("severity", "")).strip().lower() for p in predictions]
     true_sev = [str(g.get("severity", "")).strip().lower() for g in ground_truth]
     results["severity_partial_credit"] = partial_credit_severity(pred_sev, true_sev)
 
-    # Partial credit for object_part (hierarchical)
     pred_part = [str(p.get("object_part", "")).strip().lower() for p in predictions]
     true_part = [str(g.get("object_part", "")).strip().lower() for g in ground_truth]
     results["object_part_partial_credit"] = partial_credit_object_part(pred_part, true_part)
 
-    # Risk flags
     pred_flags = [str(p.get("risk_flags", "none")) for p in predictions]
     true_flags = [str(g.get("risk_flags", "none")) for g in ground_truth]
     results["risk_flags_f1"] = risk_flags_f1(pred_flags, true_flags)
 
-    # Supporting image IDs
     pred_ids = [str(p.get("supporting_image_ids", "none")) for p in predictions]
     true_ids = [str(g.get("supporting_image_ids", "none")) for g in ground_truth]
     results["supporting_images_jaccard"] = supporting_images_jaccard(pred_ids, true_ids)
@@ -303,7 +287,194 @@ def _parse_flags(flags_str: str) -> set[str]:
     return {f.strip() for f in flags_str.split(";") if f.strip() and f.strip() != "none"}
 
 
+def generate_html_report(metrics: dict, history: list[dict] | None = None) -> str:
+    """Generate a standalone HTML report with styled tables and confusion matrices."""
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    acc_rows = ""
+    for key in sorted(metrics.keys()):
+        if key.endswith("_accuracy"):
+            m = metrics[key]
+            pct = m['accuracy'] * 100
+            bar_color = "#22c55e" if pct >= 80 else "#eab308" if pct >= 50 else "#ef4444"
+            acc_rows += f"""
+            <tr>
+                <td>{m['field']}</td>
+                <td>{m['correct']}/{m['total']}</td>
+                <td><div class="bar" style="width:{pct}%;background:{bar_color}"></div></td>
+                <td style="font-weight:bold;color:{bar_color}">{m['accuracy']:.1%}</td>
+            </tr>"""
+
+    def matrix_to_html(cm: dict) -> str:
+        labels = cm['labels']
+        matrix = cm['matrix']
+        rows_html = "<tr><th>True \\ Pred</th>"
+        for label in labels:
+            rows_html += f"<th>{label}</th>"
+        rows_html += "</tr>"
+        for true_label in labels:
+            row = matrix.get(true_label, {})
+            rows_html += f"<tr><td><strong>{true_label}</strong></td>"
+            for pred_label in labels:
+                count = row.get(pred_label, 0)
+                cls = "cell-high" if count > 2 else "cell-mid" if count > 0 else ""
+                rows_html += f'<td class="{cls}">{count}</td>'
+            rows_html += "</tr>"
+        return rows_html
+
+    cm_sections = ""
+    for key in sorted(metrics.keys()):
+        if key.endswith("_confusion"):
+            cm = metrics[key]
+            cm_sections += f"""
+            <div class="section">
+                <h3>{cm['field']} Confusion Matrix</h3>
+                <table class="matrix">{matrix_to_html(cm)}</table>
+            </div>"""
+
+    error_rows = ""
+    for key in sorted(metrics.keys()):
+        if key.endswith("_accuracy"):
+            m = metrics[key]
+            for err in m.get("errors", []):
+                error_rows += f"""
+                <tr>
+                    <td>{m['field']}</td>
+                    <td>{err['index']}</td>
+                    <td style="color:#ef4444">{err['predicted']}</td>
+                    <td style="color:#22c55e">{err['expected']}</td>
+                </tr>"""
+
+    partial_html = ""
+    if "severity_partial_credit" in metrics:
+        sc = metrics["severity_partial_credit"]
+        partial_html += f"""
+        <tr>
+            <td>Severity (partial credit)</td>
+            <td colspan="2">{sc['partial_credit_accuracy']:.4f}</td>
+            <td>(exact: {sc['exact_match_accuracy']:.4f})</td>
+        </tr>"""
+    if "object_part_partial_credit" in metrics:
+        oc = metrics["object_part_partial_credit"]
+        partial_html += f"""
+        <tr>
+            <td>Object Part (partial credit)</td>
+            <td colspan="2">{oc['partial_credit_accuracy']:.4f}</td>
+            <td>(exact: {oc['exact_match_accuracy']:.4f})</td>
+        </tr>"""
+
+    rf = metrics.get("risk_flags_f1", {})
+    sj = metrics.get("supporting_images_jaccard", {})
+
+    history_html = ""
+    if history and len(history) > 1:
+        history_html = '<div class="section"><h2>Trend (Last 5 Runs)</h2><table><tr><th>Run</th>'
+        fields = ["claim_status", "issue_type", "object_part", "severity"]
+        for f in fields:
+            history_html += f"<th>{f}</th>"
+        history_html += "</tr>"
+        for i, h in enumerate(history[-5:]):
+            history_html += f"<tr><td>{i+1}</td>"
+            for f in fields:
+                acc_key = f"{f}_accuracy"
+                if acc_key in h:
+                    pct = h[acc_key]['accuracy'] * 100
+                    color = "#22c55e" if pct >= 80 else "#eab308"
+                    history_html += f'<td style="color:{color}">{h[acc_key]["accuracy"]:.1%}</td>'
+                else:
+                    history_html += "<td>N/A</td>"
+            history_html += "</tr>"
+        history_html += "</table></div>"
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Evaluation Report — Multi-Modal Evidence Review</title>
+<style>
+* {{ margin: 0; padding: 0; box-sizing: border-box; }}
+body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #e2e8f0; padding: 2rem; }}
+.container {{ max-width: 1200px; margin: 0 auto; }}
+h1 {{ font-size: 1.8rem; margin-bottom: 0.5rem; color: #f8fafc; }}
+h2 {{ font-size: 1.3rem; margin: 1.5rem 0 1rem; color: #94a3b8; border-bottom: 1px solid #1e293b; padding-bottom: 0.3rem; }}
+h3 {{ font-size: 1rem; margin: 1rem 0 0.5rem; color: #cbd5e1; }}
+.timestamp {{ color: #64748b; margin-bottom: 1.5rem; }}
+table {{ width: 100%; border-collapse: collapse; margin: 0.5rem 0; }}
+th, td {{ padding: 0.5rem 0.75rem; text-align: left; border-bottom: 1px solid #1e293b; font-size: 0.9rem; }}
+th {{ background: #1e293b; color: #94a3b8; font-weight: 600; position: sticky; top: 0; }}
+tr:hover {{ background: #1e293b; }}
+.bar-container {{ width: 100%; background: #1e293b; border-radius: 4px; height: 20px; }}
+.bar {{ height: 20px; border-radius: 4px; min-width: 4px; }}
+.section {{ margin: 1rem 0; background: #1a2332; padding: 1rem; border-radius: 8px; }}
+.matrix {{ font-size: 0.8rem; }}
+.matrix th, .matrix td {{ text-align: center; min-width: 60px; }}
+.cell-high {{ background: #166534 !important; color: #bbf7d0; }}
+.cell-mid {{ background: #713f12 !important; color: #fde68a; }}
+.metrics-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin: 1rem 0; }}
+.card {{ background: #1a2332; padding: 1rem; border-radius: 8px; text-align: center; }}
+.card-value {{ font-size: 2rem; font-weight: bold; }}
+.card-label {{ font-size: 0.8rem; color: #94a3b8; margin-top: 0.3rem; }}
+footer {{ margin-top: 2rem; text-align: center; color: #475569; font-size: 0.8rem; }}
+a {{ color: #60a5fa; }}
+</style>
+</head>
+<body>
+<div class="container">
+<h1>Evaluation Report</h1>
+<p class="timestamp">Generated: {now}</p>
+
+<div class="metrics-grid">
+    <div class="card">
+        <div class="card-value" style="color:#22c55e">{sum(m['correct'] for k, m in metrics.items() if k.endswith('_accuracy'))}/{sum(m['total'] for k, m in metrics.items() if k.endswith('_accuracy'))}</div>
+        <div class="card-label">Total Correct</div>
+    </div>
+    <div class="card">
+        <div class="card-value" style="color:#60a5fa">{rf.get('micro_f1', 0):.3f}</div>
+        <div class="card-label">Risk Flags F1</div>
+    </div>
+    <div class="card">
+        <div class="card-value" style="color:#a78bfa">{sj.get('avg_jaccard', 0):.3f}</div>
+        <div class="card-label">Supporting Images Jaccard</div>
+    </div>
+</div>
+
+<div class="section">
+<h2>Accuracy Summary</h2>
+<table>
+<tr><th>Field</th><th>Correct/Total</th><th>Accuracy</th><th>%</th></tr>
+{acc_rows}
+</table>
+</div>
+
+{history_html}
+
+<div class="section">
+<h2>Partial Credit</h2>
+<table>
+<tr><th>Field</th><th colspan="3">Score</th></tr>
+{partial_html}
+</table>
+</div>
+
+{cm_sections}
+
+<div class="section">
+<h2>Error Details</h2>
+<table>
+<tr><th>Field</th><th>Row</th><th>Predicted</th><th>Expected</th></tr>
+{error_rows if error_rows else '<tr><td colspan="4" style="text-align:center;color:#64748b">No errors</td></tr>'}
+</table>
+</div>
+
+<footer>Multi-Modal Evidence Review — HackerRank Orchestrate June 2026</footer>
+</div>
+</body>
+</html>"""
+
+
 def format_report(metrics: dict) -> str:
+    """Legacy Markdown report format."""
     lines = ["# Evaluation Results\n"]
 
     lines.append("## Accuracy Summary\n")
@@ -316,7 +487,6 @@ def format_report(metrics: dict) -> str:
                 f"| {m['field']} | {m['accuracy']:.1%} | {m['correct']}/{m['total']} |"
             )
 
-    # Partial credit
     if "severity_partial_credit" in metrics:
         sc = metrics["severity_partial_credit"]
         lines.append(f"\n## Severity Partial Credit: {sc['partial_credit_accuracy']:.4f} "

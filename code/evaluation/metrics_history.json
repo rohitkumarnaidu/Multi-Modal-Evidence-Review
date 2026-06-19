@@ -1,0 +1,101 @@
+[
+  {
+    "claim_status_accuracy": {
+      "accuracy": 0.15,
+      "correct": 3,
+      "total": 20
+    },
+    "issue_type_accuracy": {
+      "accuracy": 0.15,
+      "correct": 3,
+      "total": 20
+    },
+    "object_part_accuracy": {
+      "accuracy": 0.1,
+      "correct": 2,
+      "total": 20
+    },
+    "evidence_standard_met_accuracy": {
+      "accuracy": 0.2,
+      "correct": 4,
+      "total": 20
+    },
+    "valid_image_accuracy": {
+      "accuracy": 0.05,
+      "correct": 1,
+      "total": 20
+    },
+    "severity_accuracy": {
+      "accuracy": 0.15,
+      "correct": 3,
+      "total": 20
+    },
+    "_timestamp": "2026-06-20T02:15:04.130701"
+  },
+  {
+    "claim_status_accuracy": {
+      "accuracy": 0.15,
+      "correct": 3,
+      "total": 20
+    },
+    "issue_type_accuracy": {
+      "accuracy": 0.15,
+      "correct": 3,
+      "total": 20
+    },
+    "object_part_accuracy": {
+      "accuracy": 0.1,
+      "correct": 2,
+      "total": 20
+    },
+    "evidence_standard_met_accuracy": {
+      "accuracy": 0.2,
+      "correct": 4,
+      "total": 20
+    },
+    "valid_image_accuracy": {
+      "accuracy": 0.05,
+      "correct": 1,
+      "total": 20
+    },
+    "severity_accuracy": {
+      "accuracy": 0.15,
+      "correct": 3,
+      "total": 20
+    },
+    "_timestamp": "2026-06-20T02:15:04.138372"
+  },
+  {
+    "claim_status_accuracy": {
+      "accuracy": 0.15,
+      "correct": 3,
+      "total": 20
+    },
+    "issue_type_accuracy": {
+      "accuracy": 0.15,
+      "correct": 3,
+      "total": 20
+    },
+    "object_part_accuracy": {
+      "accuracy": 0.1,
+      "correct": 2,
+      "total": 20
+    },
+    "evidence_standard_met_accuracy": {
+      "accuracy": 0.2,
+      "correct": 4,
+      "total": 20
+    },
+    "valid_image_accuracy": {
+      "accuracy": 0.05,
+      "correct": 1,
+      "total": 20
+    },
+    "severity_accuracy": {
+      "accuracy": 0.15,
+      "correct": 3,
+      "total": 20
+    },
+    "_timestamp": "2026-06-20T02:15:42.388789"
+  }
+]

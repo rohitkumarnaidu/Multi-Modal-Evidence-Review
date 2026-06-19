@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Evaluation Report — Multi-Modal Evidence Review</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #e2e8f0; padding: 2rem; }
+.container { max-width: 1200px; margin: 0 auto; }
+h1 { font-size: 1.8rem; margin-bottom: 0.5rem; color: #f8fafc; }
+h2 { font-size: 1.3rem; margin: 1.5rem 0 1rem; color: #94a3b8; border-bottom: 1px solid #1e293b; padding-bottom: 0.3rem; }
+h3 { font-size: 1rem; margin: 1rem 0 0.5rem; color: #cbd5e1; }
+.timestamp { color: #64748b; margin-bottom: 1.5rem; }
+table { width: 100%; border-collapse: collapse; margin: 0.5rem 0; }
+th, td { padding: 0.5rem 0.75rem; text-align: left; border-bottom: 1px solid #1e293b; font-size: 0.9rem; }
+th { background: #1e293b; color: #94a3b8; font-weight: 600; position: sticky; top: 0; }
+tr:hover { background: #1e293b; }
+.bar-container { width: 100%; background: #1e293b; border-radius: 4px; height: 20px; }
+.bar { height: 20px; border-radius: 4px; min-width: 4px; }
+.section { margin: 1rem 0; background: #1a2332; padding: 1rem; border-radius: 8px; }
+.matrix { font-size: 0.8rem; }
+.matrix th, .matrix td { text-align: center; min-width: 60px; }
+.cell-high { background: #166534 !important; color: #bbf7d0; }
+.cell-mid { background: #713f12 !important; color: #fde68a; }
+.metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin: 1rem 0; }
+.card { background: #1a2332; padding: 1rem; border-radius: 8px; text-align: center; }
+.card-value { font-size: 2rem; font-weight: bold; }
+.card-label { font-size: 0.8rem; color: #94a3b8; margin-top: 0.3rem; }
+footer { margin-top: 2rem; text-align: center; color: #475569; font-size: 0.8rem; }
+a { color: #60a5fa; }
+</style>
+</head>
+<body>
+<div class="container">
+<h1>Evaluation Report</h1>
+<p class="timestamp">Generated: 2026-06-20 02:15:42</p>
+
+<div class="metrics-grid">
+    <div class="card">
+        <div class="card-value" style="color:#22c55e">16/120</div>
+        <div class="card-label">Total Correct</div>
+    </div>
+    <div class="card">
+        <div class="card-value" style="color:#60a5fa">0.429</div>
+        <div class="card-label">Risk Flags F1</div>
+    </div>
+    <div class="card">
+        <div class="card-value" style="color:#a78bfa">0.100</div>
+        <div class="card-label">Supporting Images Jaccard</div>
+    </div>
+</div>
+
+<div class="section">
+<h2>Accuracy Summary</h2>
+<table>
+<tr><th>Field</th><th>Correct/Total</th><th>Accuracy</th><th>%</th></tr>
+
+            <tr>
+                <td>claim_status</td>
+                <td>3/20</td>
+                <td><div class="bar" style="width:15.0%;background:#ef4444"></div></td>
+                <td style="font-weight:bold;color:#ef4444">15.0%</td>
+            </tr>
+            <tr>
+                <td>evidence_standard_met</td>
+                <td>4/20</td>
+                <td><div class="bar" style="width:20.0%;background:#ef4444"></div></td>
+                <td style="font-weight:bold;color:#ef4444">20.0%</td>
+            </tr>
+            <tr>
+                <td>issue_type</td>
+                <td>3/20</td>
+                <td><div class="bar" style="width:15.0%;background:#ef4444"></div></td>
+                <td style="font-weight:bold;color:#ef4444">15.0%</td>
+            </tr>
+            <tr>
+                <td>object_part</td>
+                <td>2/20</td>
+                <td><div class="bar" style="width:10.0%;background:#ef4444"></div></td>
+                <td style="font-weight:bold;color:#ef4444">10.0%</td>
+            </tr>
+            <tr>
+                <td>severity</td>
+                <td>3/20</td>
+                <td><div class="bar" style="width:15.0%;background:#ef4444"></div></td>
+                <td style="font-weight:bold;color:#ef4444">15.0%</td>
+            </tr>
+            <tr>
+                <td>valid_image</td>
+                <td>1/20</td>
+                <td><div class="bar" style="width:5.0%;background:#ef4444"></div></td>
+                <td style="font-weight:bold;color:#ef4444">5.0%</td>
+            </tr>
+</table>
+</div>
+
+<div class="section"><h2>Trend (Last 5 Runs)</h2><table><tr><th>Run</th><th>claim_status</th><th>issue_type</th><th>object_part</th><th>severity</th></tr><tr><td>1</td><td style="color:#eab308">15.0%</td><td style="color:#eab308">15.0%</td><td style="color:#eab308">10.0%</td><td style="color:#eab308">15.0%</td></tr><tr><td>2</td><td style="color:#eab308">15.0%</td><td style="color:#eab308">15.0%</td><td style="color:#eab308">10.0%</td><td style="color:#eab308">15.0%</td></tr><tr><td>3</td><td style="color:#eab308">15.0%</td><td style="color:#eab308">15.0%</td><td style="color:#eab308">10.0%</td><td style="color:#eab308">15.0%</td></tr></table></div>
+
+<div class="section">
+<h2>Partial Credit</h2>
+<table>
+<tr><th>Field</th><th colspan="3">Score</th></tr>
+
+        <tr>
+            <td>Severity (partial credit)</td>
+            <td colspan="2">0.1750</td>
+            <td>(exact: 0.1500)</td>
+        </tr>
+        <tr>
+            <td>Object Part (partial credit)</td>
+            <td colspan="2">0.1250</td>
+            <td>(exact: 0.1000)</td>
+        </tr>
+</table>
+</div>
+
+
+            <div class="section">
+                <h3>claim_status Confusion Matrix</h3>
+                <table class="matrix"><tr><th>True \ Pred</th><th>contradicted</th><th>not_enough_information</th><th>supported</th></tr><tr><td><strong>contradicted</strong></td><td class="">0</td><td class="cell-high">5</td><td class="">0</td></tr><tr><td><strong>not_enough_information</strong></td><td class="">0</td><td class="cell-high">3</td><td class="">0</td></tr><tr><td><strong>supported</strong></td><td class="">0</td><td class="cell-high">12</td><td class="">0</td></tr></table>
+            </div>
+            <div class="section">
+                <h3>evidence_standard_met Confusion Matrix</h3>
+                <table class="matrix"><tr><th>True \ Pred</th><th>false</th><th>true</th></tr><tr><td><strong>false</strong></td><td class="cell-high">3</td><td class="">0</td></tr><tr><td><strong>true</strong></td><td class="cell-high">16</td><td class="cell-mid">1</td></tr></table>
+            </div>
+            <div class="section">
+                <h3>issue_type Confusion Matrix</h3>
+                <table class="matrix"><tr><th>True \ Pred</th><th>broken_part</th><th>crack</th><th>crushed_packaging</th><th>dent</th><th>missing_part</th><th>none</th><th>scratch</th><th>stain</th><th>torn_packaging</th><th>unknown</th><th>water_damage</th></tr><tr><td><strong>broken_part</strong></td><td class="cell-mid">1</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="cell-high">3</td><td class="">0</td></tr><tr><td><strong>crack</strong></td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="cell-high">3</td><td class="">0</td></tr><tr><td><strong>crushed_packaging</strong></td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="cell-mid">1</td><td class="">0</td></tr><tr><td><strong>dent</strong></td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="cell-high">3</td><td class="">0</td></tr><tr><td><strong>missing_part</strong></td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td></tr><tr><td><strong>none</strong></td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="cell-mid">2</td><td class="">0</td></tr><tr><td><strong>scratch</strong></td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="cell-mid">1</td><td class="">0</td></tr><tr><td><strong>stain</strong></td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="cell-mid">1</td><td class="">0</td></tr><tr><td><strong>torn_packaging</strong></td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="cell-mid">1</td><td class="">0</td></tr><tr><td><strong>unknown</strong></td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="cell-mid">1</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="cell-mid">2</td><td class="">0</td></tr><tr><td><strong>water_damage</strong></td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="cell-mid">1</td><td class="">0</td></tr></table>
+            </div>
+            <div class="section">
+                <h3>object_part Confusion Matrix</h3>
+                <table class="matrix"><tr><th>True \ Pred</th><th>contents</th><th>corner</th><th>door</th><th>front_bumper</th><th>headlight</th><th>hinge</th><th>hood</th><th>keyboard</th><th>package_corner</th><th>package_side</th><th>rear_bumper</th><th>screen</th><th>seal</th><th>side_mirror</th><th>trackpad</th><th>unknown</th><th>windshield</th></tr><tr><td><strong>contents</strong></td><td class="cell-mid">1</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td></tr><tr><td><strong>corner</strong></td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="cell-mid">1</td><td class="">0</td></tr><tr><td><strong>door</strong></td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="cell-mid">1</td><td class="">0</td></tr><tr><td><strong>front_bumper</strong></td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="cell-mid">1</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="cell-mid">1</td><td class="">0</td></tr><tr><td><strong>headlight</strong></td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="cell-mid">1</td><td class="">0</td></tr><tr><td><strong>hinge</strong></td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="cell-mid">1</td><td class="">0</td></tr><tr><td><strong>hood</strong></td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td></tr><tr><td><strong>keyboard</strong></td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="cell-mid">1</td><td class="">0</td></tr><tr><td><strong>package_corner</strong></td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="cell-mid">1</td><td class="">0</td></tr><tr><td><strong>package_side</strong></td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="cell-mid">1</td><td class="">0</td></tr><tr><td><strong>rear_bumper</strong></td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="cell-mid">2</td><td class="">0</td></tr><tr><td><strong>screen</strong></td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="cell-mid">2</td><td class="">0</td></tr><tr><td><strong>seal</strong></td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="cell-mid">2</td><td class="">0</td></tr><tr><td><strong>side_mirror</strong></td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="cell-mid">1</td><td class="">0</td></tr><tr><td><strong>trackpad</strong></td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="cell-mid">1</td><td class="">0</td></tr><tr><td><strong>unknown</strong></td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="cell-mid">1</td><td class="">0</td></tr><tr><td><strong>windshield</strong></td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="cell-mid">1</td><td class="">0</td></tr></table>
+            </div>
+            <div class="section">
+                <h3>severity Confusion Matrix</h3>
+                <table class="matrix"><tr><th>True \ Pred</th><th>high</th><th>low</th><th>medium</th><th>none</th><th>unknown</th></tr><tr><td><strong>high</strong></td><td class="">0</td><td class="">0</td><td class="cell-mid">1</td><td class="">0</td><td class="">0</td></tr><tr><td><strong>low</strong></td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="cell-high">3</td></tr><tr><td><strong>medium</strong></td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="cell-high">11</td></tr><tr><td><strong>none</strong></td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="cell-mid">2</td></tr><tr><td><strong>unknown</strong></td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="cell-high">3</td></tr></table>
+            </div>
+            <div class="section">
+                <h3>valid_image Confusion Matrix</h3>
+                <table class="matrix"><tr><th>True \ Pred</th><th>false</th><th>true</th></tr><tr><td><strong>false</strong></td><td class="cell-mid">1</td><td class="cell-mid">1</td></tr><tr><td><strong>true</strong></td><td class="cell-high">18</td><td class="">0</td></tr></table>
+            </div>
+
+<div class="section">
+<h2>Error Details</h2>
+<table>
+<tr><th>Field</th><th>Row</th><th>Predicted</th><th>Expected</th></tr>
+
+                <tr>
+                    <td>claim_status</td>
+                    <td>0</td>
+                    <td style="color:#ef4444">not_enough_information</td>
+                    <td style="color:#22c55e">supported</td>
+                </tr>
+                <tr>
+                    <td>claim_status</td>
+                    <td>2</td>
+                    <td style="color:#ef4444">not_enough_information</td>
+                    <td style="color:#22c55e">supported</td>
+                </tr>
+                <tr>
+                    <td>claim_status</td>
+                    <td>3</td>
+                    <td style="color:#ef4444">not_enough_information</td>
+                    <td style="color:#22c55e">supported</td>
+                </tr>
+                <tr>
+                    <td>claim_status</td>
+                    <td>4</td>
+                    <td style="color:#ef4444">not_enough_information</td>
+                    <td style="color:#22c55e">contradicted</td>
+                </tr>
+                <tr>
+                    <td>claim_status</td>
+                    <td>6</td>
+                    <td style="color:#ef4444">not_enough_information</td>
+                    <td style="color:#22c55e">supported</td>
+                </tr>
+                <tr>
+                    <td>claim_status</td>
+                    <td>7</td>
+                    <td style="color:#ef4444">not_enough_information</td>
+                    <td style="color:#22c55e">contradicted</td>
+                </tr>
+                <tr>
+                    <td>claim_status</td>
+                    <td>8</td>
+                    <td style="color:#ef4444">not_enough_information</td>
+                    <td style="color:#22c55e">supported</td>
+                </tr>
+                <tr>
+                    <td>claim_status</td>
+                    <td>9</td>
+                    <td style="color:#ef4444">not_enough_information</td>
+                    <td style="color:#22c55e">supported</td>
+                </tr>
+                <tr>
+                    <td>claim_status</td>
+                    <td>10</td>
+                    <td style="color:#ef4444">not_enough_information</td>
+                    <td style="color:#22c55e">supported</td>
+                </tr>
+                <tr>
+                    <td>claim_status</td>
+                    <td>11</td>
+                    <td style="color:#ef4444">not_enough_information</td>
+                    <td style="color:#22c55e">supported</td>
+                </tr>
+                <tr>
+                    <td>evidence_standard_met</td>
+                    <td>0</td>
+                    <td style="color:#ef4444">false</td>
+                    <td style="color:#22c55e">true</td>
+                </tr>
+                <tr>
+                    <td>evidence_standard_met</td>
+                    <td>2</td>
+                    <td style="color:#ef4444">false</td>
+                    <td style="color:#22c55e">true</td>
+                </tr>
+                <tr>
+                    <td>evidence_standard_met</td>
+                    <td>3</td>
+                    <td style="color:#ef4444">false</td>
+                    <td style="color:#22c55e">true</td>
+                </tr>
+                <tr>
+                    <td>evidence_standard_met</td>
+                    <td>4</td>
+                    <td style="color:#ef4444">false</td>
+                    <td style="color:#22c55e">true</td>
+                </tr>
+                <tr>
+                    <td>evidence_standard_met</td>
+                    <td>6</td>
+                    <td style="color:#ef4444">false</td>
+                    <td style="color:#22c55e">true</td>
+                </tr>
+                <tr>
+                    <td>evidence_standard_met</td>
+                    <td>8</td>
+                    <td style="color:#ef4444">false</td>
+                    <td style="color:#22c55e">true</td>
+                </tr>
+                <tr>
+                    <td>evidence_standard_met</td>
+                    <td>9</td>
+                    <td style="color:#ef4444">false</td>
+                    <td style="color:#22c55e">true</td>
+                </tr>
+                <tr>
+                    <td>evidence_standard_met</td>
+                    <td>10</td>
+                    <td style="color:#ef4444">false</td>
+                    <td style="color:#22c55e">true</td>
+                </tr>
+                <tr>
+                    <td>evidence_standard_met</td>
+                    <td>11</td>
+                    <td style="color:#ef4444">false</td>
+                    <td style="color:#22c55e">true</td>
+                </tr>
+                <tr>
+                    <td>evidence_standard_met</td>
+                    <td>12</td>
+                    <td style="color:#ef4444">false</td>
+                    <td style="color:#22c55e">true</td>
+                </tr>
+                <tr>
+                    <td>issue_type</td>
+                    <td>0</td>
+                    <td style="color:#ef4444">unknown</td>
+                    <td style="color:#22c55e">dent</td>
+                </tr>
+                <tr>
+                    <td>issue_type</td>
+                    <td>1</td>
+                    <td style="color:#ef4444">unknown</td>
+                    <td style="color:#22c55e">broken_part</td>
+                </tr>
+                <tr>
+                    <td>issue_type</td>
+                    <td>2</td>
+                    <td style="color:#ef4444">unknown</td>
+                    <td style="color:#22c55e">crack</td>
+                </tr>
+                <tr>
+                    <td>issue_type</td>
+                    <td>3</td>
+                    <td style="color:#ef4444">unknown</td>
+                    <td style="color:#22c55e">broken_part</td>
+                </tr>
+                <tr>
+                    <td>issue_type</td>
+                    <td>4</td>
+                    <td style="color:#ef4444">unknown</td>
+                    <td style="color:#22c55e">scratch</td>
+                </tr>
+                <tr>
+                    <td>issue_type</td>
+                    <td>6</td>
+                    <td style="color:#ef4444">unknown</td>
+                    <td style="color:#22c55e">dent</td>
+                </tr>
+                <tr>
+                    <td>issue_type</td>
+                    <td>8</td>
+                    <td style="color:#ef4444">unknown</td>
+                    <td style="color:#22c55e">crack</td>
+                </tr>
+                <tr>
+                    <td>issue_type</td>
+                    <td>9</td>
+                    <td style="color:#ef4444">unknown</td>
+                    <td style="color:#22c55e">broken_part</td>
+                </tr>
+                <tr>
+                    <td>issue_type</td>
+                    <td>10</td>
+                    <td style="color:#ef4444">unknown</td>
+                    <td style="color:#22c55e">stain</td>
+                </tr>
+                <tr>
+                    <td>issue_type</td>
+                    <td>11</td>
+                    <td style="color:#ef4444">unknown</td>
+                    <td style="color:#22c55e">dent</td>
+                </tr>
+                <tr>
+                    <td>object_part</td>
+                    <td>0</td>
+                    <td style="color:#ef4444">unknown</td>
+                    <td style="color:#22c55e">rear_bumper</td>
+                </tr>
+                <tr>
+                    <td>object_part</td>
+                    <td>1</td>
+                    <td style="color:#ef4444">unknown</td>
+                    <td style="color:#22c55e">front_bumper</td>
+                </tr>
+                <tr>
+                    <td>object_part</td>
+                    <td>2</td>
+                    <td style="color:#ef4444">unknown</td>
+                    <td style="color:#22c55e">windshield</td>
+                </tr>
+                <tr>
+                    <td>object_part</td>
+                    <td>3</td>
+                    <td style="color:#ef4444">unknown</td>
+                    <td style="color:#22c55e">side_mirror</td>
+                </tr>
+                <tr>
+                    <td>object_part</td>
+                    <td>4</td>
+                    <td style="color:#ef4444">unknown</td>
+                    <td style="color:#22c55e">rear_bumper</td>
+                </tr>
+                <tr>
+                    <td>object_part</td>
+                    <td>5</td>
+                    <td style="color:#ef4444">unknown</td>
+                    <td style="color:#22c55e">headlight</td>
+                </tr>
+                <tr>
+                    <td>object_part</td>
+                    <td>6</td>
+                    <td style="color:#ef4444">unknown</td>
+                    <td style="color:#22c55e">door</td>
+                </tr>
+                <tr>
+                    <td>object_part</td>
+                    <td>7</td>
+                    <td style="color:#ef4444">hood</td>
+                    <td style="color:#22c55e">front_bumper</td>
+                </tr>
+                <tr>
+                    <td>object_part</td>
+                    <td>8</td>
+                    <td style="color:#ef4444">unknown</td>
+                    <td style="color:#22c55e">screen</td>
+                </tr>
+                <tr>
+                    <td>object_part</td>
+                    <td>9</td>
+                    <td style="color:#ef4444">unknown</td>
+                    <td style="color:#22c55e">hinge</td>
+                </tr>
+                <tr>
+                    <td>severity</td>
+                    <td>0</td>
+                    <td style="color:#ef4444">unknown</td>
+                    <td style="color:#22c55e">medium</td>
+                </tr>
+                <tr>
+                    <td>severity</td>
+                    <td>2</td>
+                    <td style="color:#ef4444">unknown</td>
+                    <td style="color:#22c55e">medium</td>
+                </tr>
+                <tr>
+                    <td>severity</td>
+                    <td>3</td>
+                    <td style="color:#ef4444">unknown</td>
+                    <td style="color:#22c55e">medium</td>
+                </tr>
+                <tr>
+                    <td>severity</td>
+                    <td>4</td>
+                    <td style="color:#ef4444">unknown</td>
+                    <td style="color:#22c55e">low</td>
+                </tr>
+                <tr>
+                    <td>severity</td>
+                    <td>6</td>
+                    <td style="color:#ef4444">unknown</td>
+                    <td style="color:#22c55e">medium</td>
+                </tr>
+                <tr>
+                    <td>severity</td>
+                    <td>7</td>
+                    <td style="color:#ef4444">medium</td>
+                    <td style="color:#22c55e">high</td>
+                </tr>
+                <tr>
+                    <td>severity</td>
+                    <td>8</td>
+                    <td style="color:#ef4444">unknown</td>
+                    <td style="color:#22c55e">medium</td>
+                </tr>
+                <tr>
+                    <td>severity</td>
+                    <td>9</td>
+                    <td style="color:#ef4444">unknown</td>
+                    <td style="color:#22c55e">medium</td>
+                </tr>
+                <tr>
+                    <td>severity</td>
+                    <td>10</td>
+                    <td style="color:#ef4444">unknown</td>
+                    <td style="color:#22c55e">medium</td>
+                </tr>
+                <tr>
+                    <td>severity</td>
+                    <td>11</td>
+                    <td style="color:#ef4444">unknown</td>
+                    <td style="color:#22c55e">low</td>
+                </tr>
+                <tr>
+                    <td>valid_image</td>
+                    <td>0</td>
+                    <td style="color:#ef4444">false</td>
+                    <td style="color:#22c55e">true</td>
+                </tr>
+                <tr>
+                    <td>valid_image</td>
+                    <td>1</td>
+                    <td style="color:#ef4444">false</td>
+                    <td style="color:#22c55e">true</td>
+                </tr>
+                <tr>
+                    <td>valid_image</td>
+                    <td>2</td>
+                    <td style="color:#ef4444">false</td>
+                    <td style="color:#22c55e">true</td>
+                </tr>
+                <tr>
+                    <td>valid_image</td>
+                    <td>3</td>
+                    <td style="color:#ef4444">false</td>
+                    <td style="color:#22c55e">true</td>
+                </tr>
+                <tr>
+                    <td>valid_image</td>
+                    <td>4</td>
+                    <td style="color:#ef4444">false</td>
+                    <td style="color:#22c55e">true</td>
+                </tr>
+                <tr>
+                    <td>valid_image</td>
+                    <td>5</td>
+                    <td style="color:#ef4444">false</td>
+                    <td style="color:#22c55e">true</td>
+                </tr>
+                <tr>
+                    <td>valid_image</td>
+                    <td>6</td>
+                    <td style="color:#ef4444">false</td>
+                    <td style="color:#22c55e">true</td>
+                </tr>
+                <tr>
+                    <td>valid_image</td>
+                    <td>8</td>
+                    <td style="color:#ef4444">false</td>
+                    <td style="color:#22c55e">true</td>
+                </tr>
+                <tr>
+                    <td>valid_image</td>
+                    <td>9</td>
+                    <td style="color:#ef4444">false</td>
+                    <td style="color:#22c55e">true</td>
+                </tr>
+                <tr>
+                    <td>valid_image</td>
+                    <td>10</td>
+                    <td style="color:#ef4444">false</td>
+                    <td style="color:#22c55e">true</td>
+                </tr>
+</table>
+</div>
+
+<footer>Multi-Modal Evidence Review — HackerRank Orchestrate June 2026</footer>
+</div>
+</body>
+</html>

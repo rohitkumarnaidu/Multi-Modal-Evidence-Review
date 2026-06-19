@@ -2,33 +2,36 @@
 Evaluation Main — Run system on sample_claims.csv and compare against ground truth.
 
 Usage:
-    python evaluation/main.py
+    python evaluation/main.py              # full eval (uses cached output if exists)
+    python evaluation/main.py --fresh      # re-run pipeline from scratch
+    python evaluation/main.py --no-run     # only compare existing output
 """
 
 from __future__ import annotations
 
+import csv
 import json
 import logging
+import shutil
 import sys
+from datetime import datetime
 from pathlib import Path
 
-# Add code/ to path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from config import DATASET_DIR, SAMPLE_CLAIMS_CSV
-from data_loader import load_sample_claims, write_output_csv
-from evaluation.metrics import compute_all_metrics, format_report
+from data_loader import load_sample_claims
+from evaluation.metrics import compute_all_metrics, format_report, generate_html_report
 
 logger = logging.getLogger(__name__)
 
 
-def run_evaluation():
+def run_evaluation(fresh: bool = False, no_run: bool = False):
     """Run evaluation on sample_claims.csv.
     
-    Steps:
-      1. Run pipeline on sample_claims.csv (inputs only)
-      2. Compare predictions against ground truth labels
-      3. Generate evaluation report
+    Args:
+        fresh: If True, re-run the pipeline even if cached output exists
+        no_run: If True, skip pipeline execution entirely (use existing output)
     """
     logging.basicConfig(
         level=logging.INFO,
@@ -39,58 +42,51 @@ def run_evaluation():
     logger.info("Evaluation Pipeline")
     logger.info("=" * 60)
 
-    # Step 1: Use existing sample output (skip re-running to save API calls)
     sample_output = DATASET_DIR / "sample_output.csv"
-    
-    # Try existing sample outputs in priority order
-    sample_candidates = [
-        DATASET_DIR / "sample_output.csv",
-        DATASET_DIR / "sample_output_nvidia_v6.csv",
-        DATASET_DIR / "sample_output_nvidia_v5.csv",
-        DATASET_DIR / "sample_output_nvidia.csv",
-    ]
-    
-    sample_source = None
-    for cand in sample_candidates:
-        if cand.exists():
-            sample_source = cand
-            break
-    
-    if sample_source:
-        if str(sample_source) != str(sample_output):
-            import shutil
+    eval_dir = Path(__file__).resolve().parent
+
+    # Step 1: Get predictions
+    if no_run:
+        if not sample_output.exists():
+            logger.error(f"No existing output found at {sample_output}")
+            return None
+        logger.info(f"Using existing output: {sample_output}")
+        metrics = {}
+    elif fresh or not sample_output.exists():
+        sample_candidates = [
+            DATASET_DIR / "sample_output_nvidia_v6.csv",
+            DATASET_DIR / "sample_output_nvidia_v5.csv",
+            DATASET_DIR / "sample_output_nvidia.csv",
+        ]
+        sample_source = None
+        for cand in sample_candidates:
+            if cand.exists():
+                sample_source = cand
+                logger.info(f"Found existing sample output: {cand}")
+                break
+        if sample_source:
             shutil.copy2(sample_source, sample_output)
             logger.info(f"Copied {sample_source} → {sample_output}")
-    
-    # If no existing output, run pipeline
-    if not sample_output.exists():
-        from main import run_pipeline
-        
-        predictions_list, metrics = run_pipeline(
-            claims_csv=SAMPLE_CLAIMS_CSV,
-            output_csv=sample_output,
-            mode="sample",
-        )
+        else:
+            from main import run_pipeline
+            predictions_list, metrics = run_pipeline(
+                claims_csv=SAMPLE_CLAIMS_CSV,
+                output_csv=sample_output,
+                mode="sample",
+            )
     else:
-        logger.info(f"Using existing sample output: {sample_output}")
+        logger.info(f"Using cached output: {sample_output}")
         metrics = {
             "mode": "sample",
-            "provider": "nvidia",
             "total_claims": 0,
             "elapsed_seconds": 0,
-            "avg_seconds_per_claim": 0,
-            "llm_stats": {"total_calls": 0, "cached_calls": 0, "failed_calls": 0,
-                         "total_input_tokens": 0, "total_output_tokens": 0,
-                         "estimated_cost_usd": 0.0},
-            "cache_stats": {"hits": 0, "misses": 0, "hit_rate": 0},
         }
 
     # Step 2: Load ground truth
     ground_truth = load_sample_claims(SAMPLE_CLAIMS_CSV)
     logger.info(f"Loaded {len(ground_truth)} ground truth rows")
 
-    # Step 3: Load predictions from output
-    import csv
+    # Step 3: Load predictions
     predictions = []
     with open(sample_output, "r", encoding="utf-8-sig") as f:
         reader = csv.DictReader(f)
@@ -100,51 +96,54 @@ def run_evaluation():
     # Step 4: Compute metrics
     eval_metrics = compute_all_metrics(predictions, ground_truth)
 
-    # Step 5: Generate report
-    report = format_report(eval_metrics)
+    # Step 5: Load history and save new snapshot
+    history_path = eval_dir / "metrics_history.json"
+    history = _load_history(history_path)
+    eval_metrics["_timestamp"] = datetime.now().isoformat()
+    _save_history(history_path, eval_metrics, history)
 
-    # Add operational analysis
-    report += "\n\n" + _build_operational_analysis(metrics)
+    # Step 6: Generate reports
+    report_md = format_report(eval_metrics)
+    report_md += "\n\n" + _build_operational_analysis(metrics)
 
-    # Step 6: Save report
-    eval_dir = Path(__file__).resolve().parent
-    report_path = eval_dir / "evaluation_report.md"
-    with open(report_path, "w", encoding="utf-8") as f:
-        f.write(report)
-    logger.info(f"Evaluation report saved to {report_path}")
+    report_html = generate_html_report(eval_metrics, history)
 
-    # Also save raw metrics
-    metrics_path = eval_dir / "eval_metrics.json"
-    with open(metrics_path, "w", encoding="utf-8") as f:
+    with open(eval_dir / "evaluation_report.md", "w", encoding="utf-8") as f:
+        f.write(report_md)
+    with open(eval_dir / "evaluation_report.html", "w", encoding="utf-8") as f:
+        f.write(report_html)
+    logger.info(f"Reports saved to {eval_dir / 'evaluation_report.md'} and .html")
+
+    with open(eval_dir / "eval_metrics.json", "w", encoding="utf-8") as f:
         json.dump(eval_metrics, f, indent=2, default=str)
-    logger.info(f"Raw metrics saved to {metrics_path}")
 
-    # Print summary
-    print("\n" + "=" * 60)
-    print("EVALUATION SUMMARY")
-    print("=" * 60)
-    for key in sorted(eval_metrics.keys()):
-        if key.endswith("_accuracy"):
-            m = eval_metrics[key]
-            print(f"  {m['field']:30s}: {m['accuracy']:.1%} ({m['correct']}/{m['total']})")
-    if "risk_flags_f1" in eval_metrics:
-        print(f"  {'risk_flags_f1':30s}: {eval_metrics['risk_flags_f1']['micro_f1']:.4f}")
-    if "supporting_images_jaccard" in eval_metrics:
-        print(f"  {'supporting_images_jaccard':30s}: {eval_metrics['supporting_images_jaccard']['avg_jaccard']:.4f}")
-    print("=" * 60)
-
+    _print_summary(eval_metrics)
     return eval_metrics
 
 
-def _fmt_num(val):
-    """Format number with commas, or return as-is for strings."""
-    if isinstance(val, (int, float)):
-        return f"{val:,}"
-    return str(val)
+def _load_history(path: Path) -> list[dict]:
+    if path.exists():
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            return data if isinstance(data, list) else [data]
+        except (json.JSONDecodeError, ValueError):
+            return []
+    return []
+
+
+def _save_history(path: Path, current: dict, history: list[dict]):
+    snapshot = {}
+    for k, v in current.items():
+        if isinstance(v, dict) and "accuracy" in v:
+            snapshot[k] = {"accuracy": v["accuracy"], "correct": v["correct"], "total": v["total"]}
+    snapshot["_timestamp"] = current.get("_timestamp", datetime.now().isoformat())
+    history.append(snapshot)
+    if len(history) > 20:
+        history = history[-20:]
+    path.write_text(json.dumps(history, indent=2), encoding="utf-8")
 
 
 def _build_operational_analysis(pipeline_metrics: dict) -> str:
-    """Build operational analysis section for the report."""
     llm = pipeline_metrics.get("llm_stats", {})
     cache = pipeline_metrics.get("cache_stats", {})
 
@@ -189,5 +188,31 @@ def _build_operational_analysis(pipeline_metrics: dict) -> str:
     return "\n".join(lines)
 
 
+def _fmt_num(val):
+    if isinstance(val, (int, float)):
+        return f"{val:,}"
+    return str(val)
+
+
+def _print_summary(metrics: dict):
+    print("\n" + "=" * 60)
+    print("EVALUATION SUMMARY")
+    print("=" * 60)
+    for key in sorted(metrics.keys()):
+        if key.endswith("_accuracy"):
+            m = metrics[key]
+            print(f"  {m['field']:30s}: {m['accuracy']:.1%} ({m['correct']}/{m['total']})")
+    if "risk_flags_f1" in metrics:
+        print(f"  {'risk_flags_f1':30s}: {metrics['risk_flags_f1']['micro_f1']:.4f}")
+    if "supporting_images_jaccard" in metrics:
+        print(f"  {'supporting_images_jaccard':30s}: {metrics['supporting_images_jaccard']['avg_jaccard']:.4f}")
+    print("=" * 60)
+
+
 if __name__ == "__main__":
-    run_evaluation()
+    import argparse
+    parser = argparse.ArgumentParser(description="Run evaluation")
+    parser.add_argument("--fresh", action="store_true", help="Re-run pipeline from scratch")
+    parser.add_argument("--no-run", action="store_true", help="Skip pipeline execution")
+    args = parser.parse_args()
+    run_evaluation(fresh=args.fresh, no_run=args.no_run)
