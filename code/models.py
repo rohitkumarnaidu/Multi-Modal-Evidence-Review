@@ -145,6 +145,8 @@ class ImageAnalysis(BaseModel):
     # EXIF / metadata
     has_exif: bool = False
     is_edited: bool = False
+    exif_datetime: str = ""
+    exif_camera_model: str = ""
 
     # Relevance to claim
     shows_claimed_part: bool = False
@@ -165,6 +167,7 @@ class EvidenceSufficiency(BaseModel):
 class FraudSignals(BaseModel):
     """Output of Engine 5: fraud detection results."""
     risk_flags: list[str] = Field(default_factory=list)
+    fraud_score: float = 0.0
     has_prompt_injection_in_text: bool = False
     has_prompt_injection_in_image: bool = False
     has_wrong_object: bool = False

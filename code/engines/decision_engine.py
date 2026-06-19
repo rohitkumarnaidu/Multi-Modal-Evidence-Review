@@ -94,6 +94,15 @@ def make_decision(
         claim.claim_object, visible_part, visible_issue, raw_severity
     )
 
+    # Fraud-to-severity calibration: bump severity when fraud signals present
+    fraud_score = getattr(fraud, 'fraud_score', 0.0)
+    if fraud_score >= 0.5 and severity in ("none", "low"):
+        severity = "medium"
+        logger.info(f"Severity bumped by fraud score {fraud_score:.2f}: {severity}")
+    elif fraud_score >= 0.7 and severity == "medium":
+        severity = "high"
+        logger.info(f"Severity bumped by fraud score {fraud_score:.2f}: {severity}")
+
     damage_not_visible_flagged = hasattr(fraud, 'damage_not_visible') and fraud.damage_not_visible
     override_none_applied = (
         raw_issue == "none"

@@ -148,6 +148,8 @@ def analyze_single_image(
         watermark_text=result.get("watermark_text", ""),
         has_exif=exif_data.get("has_exif", False),
         is_edited=exif_data.get("is_edited", False),
+        exif_datetime=exif_data.get("datetime_original", ""),
+        exif_camera_model=exif_data.get("camera_model", ""),
         has_text_instruction=result.get("has_text_instruction", False),
         text_instruction_content=result.get("text_instruction_content", ""),
         is_usable=result.get("is_usable", True),

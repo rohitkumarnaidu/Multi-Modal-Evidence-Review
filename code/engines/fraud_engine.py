@@ -2,7 +2,7 @@
 Engine 5: Fraud Detection Engine.
 
 Cross-references claim extraction vs. vision findings to detect:
-  - wrong_object: image shows car but claim is laptop, or canned food vs box
+  - wrong_object: image shows car but claim is laptop
   - wrong_object_part: right object, wrong part visible
   - claim_mismatch: damage type or severity doesn't match claim
   - possible_manipulation: suspicious patterns
@@ -15,10 +15,27 @@ Cross-references claim extraction vs. vision findings to detect:
 from __future__ import annotations
 
 import logging
+from typing import Optional
 
 from models import ClaimExtraction, ClaimInput, FraudSignals, ImageAnalysis
 
 logger = logging.getLogger(__name__)
+
+# Weight map for risk scoring (higher = more severe signal)
+RISK_WEIGHTS: dict[str, float] = {
+    "wrong_object": 0.35,
+    "wrong_object_part": 0.20,
+    "claim_mismatch": 0.15,
+    "possible_manipulation": 0.25,
+    "non_original_image": 0.30,
+    "text_instruction_present": 0.30,
+    "duplicate_image": 0.20,
+    "damage_not_visible": 0.10,
+    "blurry_image": 0.05,
+    "cropped_or_obstructed": 0.05,
+    "low_light_or_glare": 0.05,
+    "wrong_angle": 0.05,
+}
 
 
 def detect_fraud(
@@ -47,11 +64,21 @@ def detect_fraud(
     _check_unknown_object(claim, extraction, image_analyses, flags, fraud)
     _check_damage_visibility(extraction, image_analyses, flags, fraud)
     _check_image_integrity(image_analyses, claim, flags, fraud)
+    _check_sequential_images(image_analyses, flags, fraud)
 
     fraud.risk_flags = flags
+    fraud.fraud_score = _compute_risk_score(flags)
     fraud.fraud_summary = "; ".join(flags) if flags else "No fraud signals detected"
-    logger.info(f"Fraud check for {claim.user_id}: {fraud.fraud_summary}")
+    logger.info(
+        f"Fraud check for {claim.user_id}: score={fraud.fraud_score:.2f}, "
+        f"flags={fraud.fraud_summary}"
+    )
     return fraud
+
+
+def _majority_usable(analyses: list[ImageAnalysis]) -> int:
+    """Return count of usable images; 0 if none."""
+    return sum(1 for a in analyses if a.is_usable)
 
 
 def _check_wrong_object(
@@ -60,21 +87,25 @@ def _check_wrong_object(
     flags: list[str],
     fraud: FraudSignals,
 ):
-    for a in analyses:
-        if (
-            a.visible_object_type != claim.claim_object
-            and a.visible_object_type not in ("unknown", "")
-            and a.visible_object_type != "other"
-            and a.is_usable
-        ):
-            fraud.has_wrong_object = True
-            if "wrong_object" not in flags:
-                flags.append("wrong_object")
-            break
+    usable_count = _majority_usable(analyses)
+    if usable_count == 0:
+        return
+
+    wrong_count = sum(
+        1 for a in analyses
+        if a.is_usable
+        and a.visible_object_type != claim.claim_object
+        and a.visible_object_type not in ("unknown", "")
+        and a.visible_object_type != "other"
+    )
+
+    if wrong_count / usable_count >= 0.51:
+        fraud.has_wrong_object = True
+        if "wrong_object" not in flags:
+            flags.append("wrong_object")
 
     other_count = sum(1 for a in analyses if a.visible_object_type == "other" and a.is_usable)
-    usable_count = sum(1 for a in analyses if a.is_usable)
-    if usable_count > 0 and other_count >= usable_count:
+    if usable_count > 0 and other_count / usable_count >= 0.51:
         fraud.has_wrong_object = True
         if "wrong_object" not in flags:
             flags.append("wrong_object")
@@ -89,14 +120,18 @@ def _check_wrong_part(
     if extraction.claimed_object_part == "unknown":
         return
 
-    claimed_part_visible = any(
-        (a.visible_object_part == extraction.claimed_object_part
-         or extraction.claimed_object_part in a.visible_parts_list)
-        and a.is_usable
-        for a in analyses
+    usable = [a for a in analyses if a.is_usable]
+    if not usable:
+        return
+
+    part_not_visible_count = sum(
+        1 for a in usable
+        if a.visible_object_part != extraction.claimed_object_part
+        and extraction.claimed_object_part not in a.visible_parts_list
     )
 
-    if not claimed_part_visible:
+    part_mismatch_ratio = part_not_visible_count / len(usable)
+    if part_mismatch_ratio >= 0.51:
         right_object = any(
             a.visible_object_type not in ("unknown", "other", "")
             and a.is_usable
@@ -105,12 +140,7 @@ def _check_wrong_part(
         if right_object:
             fraud.has_wrong_object_part = True
             if "wrong_object_part" not in flags:
-                visible_parts = [
-                    a.visible_object_part for a in analyses
-                    if a.is_usable and a.visible_object_part != "unknown"
-                ]
-                if visible_parts:
-                    flags.append("wrong_object_part")
+                flags.append("wrong_object_part")
 
 
 def _check_claim_mismatch(
@@ -164,7 +194,6 @@ def _check_non_original(
     flags: list[str],
     fraud: FraudSignals,
 ):
-    all_watermarked = all(a.has_watermark for a in analyses) if analyses else False
     any_watermarked = any(a.has_watermark for a in analyses)
 
     if any_watermarked:
@@ -207,18 +236,7 @@ def _check_vehicle_identity(
     fraud: FraudSignals,
     llm_client=None,
 ):
-    """Multi-factor vehicle identity cross-check.
-
-    Instead of flagging on ANY color difference, compute an identity score
-    from multiple signals and only flag when confidence is high that images
-    show different vehicles.
-
-    Factors:
-      1. Color consistency (primary + secondary descriptions)
-      2. Vehicle type consistency (sedan vs SUV vs truck)
-      3. Claimed color vs visible color match
-      4. VLM cross-image identity check (when available)
-    """
+    """Multi-factor vehicle identity cross-check."""
     if len(analyses) < 2:
         return
 
@@ -226,7 +244,6 @@ def _check_vehicle_identity(
     if len(usable) < 2:
         return
 
-    # ── Factor 1: Color consistency ──────────────────────────────────────
     colors = []
     for a in usable:
         if a.vehicle_color:
@@ -255,7 +272,6 @@ def _check_vehicle_identity(
         else:
             color_score = 0.8
 
-    # ── Factor 2: Vehicle type consistency ───────────────────────────────
     types = []
     for a in usable:
         vt = getattr(a, 'vehicle_type', '') or ''
@@ -269,7 +285,6 @@ def _check_vehicle_identity(
         if len(set(valid_types)) > 1:
             type_score = 0.2
 
-    # ── Factor 3: Claimed color match ────────────────────────────────────
     conv_lower = claim.user_claim.lower()
     claimed_color = ""
     for color in ["blue", "black", "white", "red", "silver", "grey", "gray", "green"]:
@@ -283,7 +298,6 @@ def _check_vehicle_identity(
         if not any(nc == normalize_color(c) for c in colors if c):
             claimed_color_match = False
 
-    # ── Identity score ───────────────────────────────────────────────────
     identity_score = (color_score + type_score) / 2.0
 
     if identity_score < 0.3:
@@ -295,8 +309,6 @@ def _check_vehicle_identity(
     elif not claimed_color_match:
         logger.info(f"Claimed color '{claimed_color}' differs from visual colors: {colors}")
 
-    # ── Factor 4: VLM Cross-Image Identity Check ─────────────────────────
-    # When color/type matching is inconclusive, ask the VLM directly
     if not fraud.has_vehicle_identity_issue and llm_client is not None:
         _check_vehicle_identity_vlm(claim, usable, flags, fraud, llm_client)
 
@@ -308,14 +320,8 @@ def _check_vehicle_identity_vlm(
     fraud: FraudSignals,
     llm_client,
 ):
-    """Use VLM to cross-check vehicle identity across images.
-    
-    Builds summaries from per-image analyses and asks the VLM to determine
-    if images show the same vehicle.
-    """
     from llm.prompts import build_vehicle_identity_prompt
 
-    # Convert ImageAnalysis to dicts for prompt
     image_summaries = []
     for a in usable_analyses:
         image_summaries.append({
@@ -382,12 +388,10 @@ def _check_image_integrity(
     if not usable:
         return
 
-    # Check EXIF manipulation flags across images
     any_edited = any(a.is_edited for a in usable)
     if any_edited and "possible_manipulation" not in flags:
         flags.append("possible_manipulation")
 
-    # Near-duplicate detection via perceptual hash
     image_paths = [a.image_path for a in usable if a.image_path]
     if len(image_paths) >= 2:
         from detectors.perceptual_hash import find_duplicates, max_phash_distance
@@ -400,7 +404,6 @@ def _check_image_integrity(
             if "duplicate_image" not in flags:
                 flags.append("duplicate_image")
 
-        # Vehicle identity via phash (for car claims)
         if claim.claim_object == "car":
             max_dist = max_phash_distance(image_paths)
             if max_dist is not None and max_dist > 20:
@@ -408,3 +411,88 @@ def _check_image_integrity(
                     f"Large perceptual distance ({max_dist}) between images "
                     f"— possible different vehicles"
                 )
+
+
+def _check_sequential_images(
+    analyses: list[ImageAnalysis],
+    flags: list[str],
+    fraud: FraudSignals,
+):
+    """Check EXIF timestamps for suspicious patterns.
+    
+    Flags:
+    - Sequential timestamps too close (< 1 second apart): possible repackaging
+    - Timestamps too far apart (> 7 days): possible composite evidence
+    - Missing EXIF across all images: possible sanitization
+    """
+    usable = [a for a in analyses if a.is_usable]
+    if len(usable) < 2:
+        return
+
+    datetimes = []
+    for a in usable:
+        dt_str = getattr(a, 'exif_datetime', '') or ''
+        if dt_str:
+            datetimes.append(dt_str)
+
+    if not datetimes:
+        return
+
+    all_no_exif = all(
+        not getattr(a, 'has_exif', False) for a in usable
+    )
+    if all_no_exif and "possible_manipulation" not in flags:
+        logger.warning("No EXIF data across all images — possible sanitization")
+        return
+
+    parsed = []
+    import re
+    for dt in datetimes:
+        try:
+            from datetime import datetime as dt_parse
+            parsed.append(dt_parse.strptime(dt.strip(), "%Y:%m:%d %H:%M:%S"))
+        except (ValueError, TypeError):
+            pass
+
+    if len(parsed) < 2:
+        return
+
+    from datetime import timedelta
+    diffs = []
+    for i in range(len(parsed)):
+        for j in range(i + 1, len(parsed)):
+            diffs.append(abs((parsed[i] - parsed[j]).total_seconds()))
+
+    if not diffs:
+        return
+
+    min_diff = min(diffs)
+    max_diff = max(diffs)
+
+    if min_diff < 1.0:
+        logger.warning(
+            f"Sequential timestamps suspicious: {min_diff:.1f}s apart "
+            f"({datetimes}) — possible repackaging"
+        )
+        if "possible_manipulation" not in flags:
+            flags.append("possible_manipulation")
+
+    if max_diff > 7 * 86400:
+        logger.warning(
+            f"Large timestamp gap: {max_diff / 86400:.1f} days "
+            f"({datetimes}) — possible composite evidence"
+        )
+        if "possible_manipulation" not in flags:
+            flags.append("possible_manipulation")
+
+
+def _compute_risk_score(flags: list[str]) -> float:
+    """Compute weighted fraud risk score from active flags.
+    
+    Uses predefined weights per flag. Score ranges 0.0 (clean) to 1.0 (fraud).
+    Multiple flags combine additively, capped at 1.0.
+    """
+    score = 0.0
+    for flag in flags:
+        score += RISK_WEIGHTS.get(flag, 0.1)
+    return min(1.0, score)
