@@ -37,6 +37,7 @@ from config import (
     CLAIMS_CSV,
     CODE_DIR,
     DATASET_DIR,
+    INTER_CLAIM_DELAY,
     METRICS_LOG,
     OUTPUT_CSV,
     SAMPLE_CLAIMS_CSV,
@@ -55,7 +56,7 @@ from engines.fraud_engine import detect_fraud
 from engines.quality_engine import assess_image_quality
 from engines.risk_engine import get_risk_summary, get_user_risk_flags
 from engines.vision_engine import analyze_all_images
-from llm.gemini_client import GeminiClient
+from llm.multi_provider_client import MultiProviderClient
 from models import ClaimOutput
 
 # Configure logging
@@ -74,7 +75,7 @@ def process_single_claim(
     claim,
     user_history_map: dict,
     evidence_requirements: list,
-    llm_client: GeminiClient,
+    llm_client: MultiProviderClient,
     claim_index: int,
     total_claims: int,
 ) -> ClaimOutput:
@@ -171,6 +172,7 @@ def run_pipeline(
     claims_csv: Path = CLAIMS_CSV,
     output_csv: Path = OUTPUT_CSV,
     mode: str = "test",
+    retry_failed: bool = False,
 ):
     """Run the full pipeline on all claims.
     
@@ -178,6 +180,7 @@ def run_pipeline(
         claims_csv: Path to input claims CSV
         output_csv: Path for output CSV
         mode: "test" for claims.csv, "sample" for sample_claims.csv
+        retry_failed: If True, only re-process claims that previously failed
     """
     start_time = time.time()
     logger.info("=" * 60)
@@ -194,14 +197,59 @@ def run_pipeline(
 
     logger.info(f"Loaded {len(claims)} claims, {len(user_history)} user histories, {len(evidence_reqs)} requirements")
 
-    # ── Initialize LLM client ────────────────────────────────────────────
-    llm_client = GeminiClient()
+    # ── Initialize LLM client (multi-provider fallback) ────────────────
+    llm_client = MultiProviderClient()
+
+    # ── Load existing results for retry-failed mode ──────────────────────
+    existing_results: dict[str, ClaimOutput] = {}
+    if retry_failed and output_csv.exists():
+        import csv
+        with open(output_csv, "r", encoding="utf-8-sig") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                uid = row.get("user_id", "")
+                # Mark as "needs retry" if issue_type and object_part are both unknown
+                is_failed = (
+                    row.get("issue_type") == "unknown"
+                    and row.get("object_part") == "unknown"
+                )
+                if uid and not is_failed:
+                    # Keep successful results — rebuild ClaimOutput
+                    existing_results[uid] = ClaimOutput(
+                        user_id=uid,
+                        image_paths=row.get("image_paths", ""),
+                        user_claim=row.get("user_claim", ""),
+                        claim_object=row.get("claim_object", ""),
+                        evidence_standard_met=row.get("evidence_standard_met", "false"),
+                        evidence_standard_met_reason=row.get("evidence_standard_met_reason", ""),
+                        risk_flags=row.get("risk_flags", "none"),
+                        issue_type=row.get("issue_type", "unknown"),
+                        object_part=row.get("object_part", "unknown"),
+                        claim_status=row.get("claim_status", "not_enough_information"),
+                        claim_status_justification=row.get("claim_status_justification", ""),
+                        supporting_image_ids=row.get("supporting_image_ids", "none"),
+                        valid_image=row.get("valid_image", "false"),
+                        severity=row.get("severity", "unknown"),
+                    )
+        if existing_results:
+            logger.info(
+                f"Retry-failed mode: keeping {len(existing_results)} successful results, "
+                f"re-processing {len(claims) - len(existing_results)} failed claims"
+            )
 
     # ── Process claims ───────────────────────────────────────────────────
     outputs: list[ClaimOutput] = []
     total = len(claims)
 
     for i, claim in enumerate(claims):
+        # Skip already-successful claims in retry-failed mode
+        if retry_failed and claim.user_id in existing_results:
+            outputs.append(existing_results[claim.user_id])
+            logger.info(
+                f"Skipping claim {i + 1}/{total}: {claim.user_id} (already successful)"
+            )
+            continue
+
         output = process_single_claim(
             claim=claim,
             user_history_map=user_history,
@@ -214,7 +262,7 @@ def run_pipeline(
 
         # Brief pause between claims to respect rate limits
         if i < total - 1:
-            time.sleep(0.3)
+            time.sleep(INTER_CLAIM_DELAY)
 
     # ── Write output ─────────────────────────────────────────────────────
     rows = [o.to_csv_row() for o in outputs]
@@ -233,8 +281,7 @@ def run_pipeline(
 
     logger.info("=" * 60)
     logger.info(f"Pipeline complete in {elapsed:.1f}s")
-    logger.info(f"LLM Stats: {json.dumps(llm_client.tracker.stats, indent=2)}")
-    logger.info(f"Cache Stats: {json.dumps(llm_client.cache.stats, indent=2)}")
+    logger.info(f"Multi-Provider Stats: {json.dumps(llm_client.stats, indent=2)}")
     logger.info("=" * 60)
 
     # Save metrics
@@ -264,6 +311,11 @@ def main():
         default=None,
         help="Output CSV path (defaults to dataset/output.csv)",
     )
+    parser.add_argument(
+        "--retry-failed",
+        action="store_true",
+        help="Only re-process claims that previously failed (unknown/unknown)",
+    )
     args = parser.parse_args()
 
     if args.mode == "sample":
@@ -273,7 +325,12 @@ def main():
         claims_csv = CLAIMS_CSV
         output_csv = Path(args.output) if args.output else OUTPUT_CSV
 
-    run_pipeline(claims_csv=claims_csv, output_csv=output_csv, mode=args.mode)
+    run_pipeline(
+        claims_csv=claims_csv,
+        output_csv=output_csv,
+        mode=args.mode,
+        retry_failed=args.retry_failed,
+    )
 
 
 if __name__ == "__main__":

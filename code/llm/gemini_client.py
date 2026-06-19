@@ -80,6 +80,7 @@ class GeminiClient:
                 "No Gemini API keys found. Set GEMINI_API_KEYS via environment variables."
             )
         from google import genai
+        from llm.rate_limiter import KeyRateLimiter
 
         self._genai = genai
         self.keys = GEMINI_API_KEYS
@@ -87,18 +88,39 @@ class GeminiClient:
         self._client = genai.Client(api_key=self.keys[self.current_key_idx])
         self.cache = ResponseCache()
         self.tracker = TokenTracker()
-        self._last_call_time = 0.0
-        self._min_call_interval = 0.5  # seconds between calls
+        # Per-key rate limiter: Gemini free tier = 5 RPM, 20 RPD
+        self.rate_limiter = KeyRateLimiter(rpm_limit=5, rpd_limit=20)
+        logger.info(
+            f"[Gemini] Initialized with {len(self.keys)} keys, "
+            f"effective limits: {5 * len(self.keys)} RPM, {20 * len(self.keys)} RPD"
+        )
 
-    def _rate_limit_wait(self):
-        """Enforce minimum interval between API calls."""
-        now = time.time()
-        elapsed = now - self._last_call_time
-        if elapsed < self._min_call_interval:
-            wait = self._min_call_interval - elapsed
-            logger.debug(f"Rate limit: waiting {wait:.2f}s")
-            time.sleep(wait)
-        self._last_call_time = time.time()
+    def _ensure_key_available(self) -> bool:
+        """Check rate limits and rotate key if needed. Returns False if all keys exhausted."""
+        # Check if current key can handle a request
+        can_proceed = self.rate_limiter.wait_and_check(self.current_key_idx)
+        if can_proceed:
+            return True
+
+        # Current key RPD exhausted — find next available
+        next_key = self.rate_limiter.get_next_available_key(
+            self.current_key_idx, len(self.keys)
+        )
+        if next_key is not None:
+            old = self.current_key_idx
+            self.current_key_idx = next_key
+            self._client = self._genai.Client(api_key=self.keys[self.current_key_idx])
+            logger.info(
+                f"[Gemini] Proactive key rotation: {old} → {self.current_key_idx} "
+                f"(key {old} hit RPD limit)"
+            )
+            # Now wait for RPM on new key
+            self.rate_limiter.wait_and_check(self.current_key_idx)
+            return True
+
+        # All keys exhausted
+        logger.warning("[Gemini] All keys have hit RPD limit")
+        return False
 
     def call_text(
         self,
@@ -151,11 +173,20 @@ class GeminiClient:
         prompt: str,
         images: list[dict] | None = None,
     ) -> Optional[dict]:
-        """Execute API call with exponential backoff retry."""
+        """Execute API call with exponential backoff retry and smart key rotation."""
+        import re as _re
+
         text = ""
-        for attempt in range(RETRY_MAX_ATTEMPTS):
+        exhausted_in_cycle: set[int] = set()  # Track which keys hit 429 this cycle
+        max_attempts = RETRY_MAX_ATTEMPTS
+
+        for attempt in range(max_attempts):
             try:
-                self._rate_limit_wait()
+                # Proactive rate limit check — rotate BEFORE hitting the API
+                if not self._ensure_key_available():
+                    logger.error("[Gemini] All keys exhausted (RPD). Giving up.")
+                    self.tracker.record_failure()
+                    return None
 
                 # Build content parts
                 contents = []
@@ -210,13 +241,15 @@ class GeminiClient:
                 text = text.strip()
 
                 parsed = json.loads(text)
+                # Success — clear exhausted tracking
+                exhausted_in_cycle.clear()
                 return parsed
 
             except json.JSONDecodeError as e:
                 logger.warning(
                     f"JSON parse error on attempt {attempt + 1}: {e}"
                 )
-                if attempt == RETRY_MAX_ATTEMPTS - 1:
+                if attempt == max_attempts - 1:
                     logger.error(
                         f"All retries failed (JSON). Last text: {text[:200]}"
                     )
@@ -226,35 +259,79 @@ class GeminiClient:
                 continue
 
             except Exception as e:
-                error_msg = str(e).lower()
-                # Check for rate limit or quota exhaustion (429)
-                if "429" in error_msg or "quota" in error_msg or "exhausted" in error_msg:
-                    if len(self.keys) > 1:
-                        # Rotate key
-                        self.current_key_idx = (self.current_key_idx + 1) % len(self.keys)
+                error_msg = str(e)
+                error_lower = error_msg.lower()
+
+                # Check for rate limit / quota exhaustion (429)
+                is_quota_error = (
+                    "429" in error_lower
+                    or "quota" in error_lower
+                    or "exhausted" in error_lower
+                    or "rate" in error_lower
+                )
+
+                if is_quota_error and len(self.keys) > 1:
+                    # Mark current key as exhausted in both trackers
+                    exhausted_in_cycle.add(self.current_key_idx)
+                    self.rate_limiter.mark_key_exhausted(self.current_key_idx)
+
+                    # Find next available key via rate limiter
+                    next_key = self.rate_limiter.get_next_available_key(
+                        self.current_key_idx, len(self.keys)
+                    )
+                    if next_key is not None:
+                        old_idx = self.current_key_idx
+                        self.current_key_idx = next_key
                         logger.warning(
-                            f"Quota limit hit on key index {(self.current_key_idx - 1) % len(self.keys)}. "
-                            f"Rotating to key index {self.current_key_idx} ({len(self.keys)} total keys)."
+                            f"Quota hit on key {old_idx}. "
+                            f"Rotating to key {self.current_key_idx} "
+                            f"({len(exhausted_in_cycle)}/{len(self.keys)} exhausted)"
                         )
                         self._client = self._genai.Client(api_key=self.keys[self.current_key_idx])
-                        # Reset attempt counter to allow full retries on new key
-                        attempt -= 1 
-                        continue
+                        continue  # Retry immediately with new key
                     else:
-                        logger.warning(f"Quota limit hit but only 1 key configured. Waiting...")
+                        # ALL keys exhausted — parse retryDelay and wait
+                        retry_delay = 60.0  # default
+                        delay_match = _re.search(r'retryDelay.*?(\d+)', error_msg)
+                        if delay_match:
+                            retry_delay = float(delay_match.group(1))
+                        logger.warning(
+                            f"All {len(self.keys)} keys exhausted. "
+                            f"Waiting {retry_delay}s before next cycle..."
+                        )
+                        time.sleep(retry_delay)
+                        exhausted_in_cycle.clear()  # Reset for new cycle
+                        self.current_key_idx = 0
+                        self._client = self._genai.Client(api_key=self.keys[0])
+                        continue
 
+                elif is_quota_error and len(self.keys) == 1:
+                    # Single key — parse retryDelay and wait
+                    retry_delay = 60.0
+                    delay_match = _re.search(r'retryDelay.*?(\d+)', error_msg)
+                    if delay_match:
+                        retry_delay = float(delay_match.group(1))
+                    logger.warning(
+                        f"Quota hit (single key). Waiting {retry_delay}s..."
+                    )
+                    time.sleep(retry_delay)
+                    continue
+
+                # Non-quota error — standard exponential backoff
                 delay = min(
-                    RETRY_BASE_DELAY * (2**attempt),
+                    RETRY_BASE_DELAY * (2 ** attempt),
                     RETRY_MAX_DELAY,
                 )
                 logger.warning(
-                    f"API call attempt {attempt + 1}/{RETRY_MAX_ATTEMPTS} failed: {e}. "
+                    f"API call attempt {attempt + 1}/{max_attempts} failed: {e}. "
                     f"Retrying in {delay:.1f}s"
                 )
-                if attempt == RETRY_MAX_ATTEMPTS - 1:
-                    logger.error(f"All {RETRY_MAX_ATTEMPTS} retries exhausted")
+                if attempt == max_attempts - 1:
+                    logger.error(f"All {max_attempts} retries exhausted for Gemini")
                     self.tracker.record_failure()
                     return None
                 time.sleep(delay)
 
+        self.tracker.record_failure()
         return None
+

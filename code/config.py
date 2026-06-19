@@ -48,16 +48,30 @@ GROQ_API_KEY: str = os.environ.get("GROQ_API_KEY", "")
 OPENROUTER_API_KEY: str = os.environ.get("OPENROUTER_API_KEY", "")
 NVIDIA_API_KEY: str = os.environ.get("NVIDIA_API_KEY", "")
 
+# ─── Model Selection Per Provider ────────────────────────────────────────────
 GEMINI_MODEL: Final = "gemini-2.5-flash"
 GEMINI_TEMPERATURE: Final = 0.0
 GEMINI_MAX_OUTPUT_TOKENS: Final = 4096
 
+GROQ_VISION_MODEL: Final = "meta-llama/llama-4-maverick-17b-128e-instruct"
+GROQ_TEXT_MODEL: Final = "llama-3.3-70b-versatile"
+GROQ_BASE_URL: Final = "https://api.groq.com/openai/v1"
+
+OPENROUTER_VISION_MODEL: Final = "google/gemini-2.5-flash"
+OPENROUTER_TEXT_MODEL: Final = "google/gemini-2.5-flash"
+OPENROUTER_BASE_URL: Final = "https://openrouter.ai/api/v1"
+
+NVIDIA_VISION_MODEL: Final = "meta/llama-4-maverick-17b-128e-instruct"
+NVIDIA_TEXT_MODEL: Final = "meta/llama-4-maverick-17b-128e-instruct"
+NVIDIA_BASE_URL: Final = "https://integrate.api.nvidia.com/v1"
+
 # Rate limiting
 MAX_RPM: Final = 10          # Requests per minute (conservative)
 MAX_TPM: Final = 1_000_000   # Tokens per minute
-RETRY_MAX_ATTEMPTS: Final = 5
-RETRY_BASE_DELAY: Final = 2.0  # seconds
-RETRY_MAX_DELAY: Final = 60.0  # seconds
+RETRY_MAX_ATTEMPTS: Final = 10  # Increased for multi-key rotation
+RETRY_BASE_DELAY: Final = 2.0   # seconds
+RETRY_MAX_DELAY: Final = 60.0   # seconds
+INTER_CLAIM_DELAY: Final = 1.0  # seconds between claims
 
 # Batching
 BATCH_SIZE: Final = 5         # Process N claims concurrently
