@@ -8,7 +8,6 @@ where the VLM systematically reports wrong severity.
 # (claim_object, object_part, issue_type) → ground_truth_severity
 SEVERITY_OVERRIDES = {
     ("car", "rear_bumper", "dent"): "medium",
-    ("car", "front_bumper", "broken_part"): "medium",
     ("car", "windshield", "crack"): "medium",
     ("car", "side_mirror", "broken_part"): "medium",
     ("car", "rear_bumper", "scratch"): "low",
@@ -38,21 +37,14 @@ SEVERITY_OVERRIDES = {
     ("package", "package_side", "torn_packaging"): "low",
     
     # Additional severity mappings from error analysis
-    ("car", "rear_bumper", "scratch"): "low",
-    ("car", "door", "dent"): "medium",
     ("car", "taillight", "crack"): "medium",
     ("car", "taillight", "broken_part"): "medium",
-    ("car", "body", "scratch"): "low",
-    ("car", "quarter_panel", "dent"): "medium",
     ("car", "headlight", "broken_part"): "medium",
-    ("laptop", "lid", "crack"): "medium",
-    ("laptop", "screen", "crack"): "medium",
     ("laptop", "screen", "glass_shatter"): "high",
     ("laptop", "keyboard", "missing_part"): "low",
     ("laptop", "base", "broken_part"): "medium",
     ("package", "box", "unknown"): "low",
     ("package", "contents", "missing_part"): "medium",
-    ("package", "label", "water_damage"): "low",
     ("package", "package_side", "stain"): "low",
 }
 

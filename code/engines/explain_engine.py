@@ -12,6 +12,7 @@ Ensures all justifications:
 from __future__ import annotations
 
 import logging
+import re
 
 from models import ClaimOutput
 
@@ -26,16 +27,15 @@ def polish_output(output: ClaimOutput) -> ClaimOutput:
     """
     # Ensure justification isn't too long
     if len(output.claim_status_justification) > 500:
-        # Truncate to first 3 sentences
-        sentences = output.claim_status_justification.split(". ")
-        output.claim_status_justification = ". ".join(sentences[:3])
+        sentences = re.split(r'(?<=[.!?])\s+', output.claim_status_justification)
+        output.claim_status_justification = " ".join(sentences[:3])
         if not output.claim_status_justification.endswith("."):
             output.claim_status_justification += "."
 
     # Ensure evidence reason isn't too long
     if len(output.evidence_standard_met_reason) > 300:
-        sentences = output.evidence_standard_met_reason.split(". ")
-        output.evidence_standard_met_reason = ". ".join(sentences[:2])
+        sentences = re.split(r'(?<=[.!?])\s+', output.evidence_standard_met_reason)
+        output.evidence_standard_met_reason = " ".join(sentences[:2])
         if not output.evidence_standard_met_reason.endswith("."):
             output.evidence_standard_met_reason += "."
 

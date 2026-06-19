@@ -110,11 +110,11 @@ def load_image_as_base64(image_path: str) -> Optional[str]:
     
     image_path is relative to the dataset/ directory.
     """
-    # Resolve the full path
-    full_path = DATASET_DIR / image_path.replace("/", "\\")
+    # Resolve the full path (handles both / and \ cross-platform)
+    full_path = DATASET_DIR / Path(image_path)
     if not full_path.exists():
-        # Try forward slashes
-        full_path = DATASET_DIR / image_path
+        # Try resolving with cleaned separators
+        full_path = DATASET_DIR / image_path.replace("\\", "/")
     if not full_path.exists():
         logger.error(f"Image not found: {full_path}")
         return None

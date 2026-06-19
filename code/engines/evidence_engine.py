@@ -262,11 +262,12 @@ def _build_met_reason(
                 best = a
                 break
 
-    if all_blurry and len(analyses) > 1:
+    has_any_blurry = any(a.is_blurry for a in analyses)
+    if has_any_blurry and len(analyses) > 1:
         clear_ones = [a for a in analyses if not a.is_blurry]
         if clear_ones:
             return (
-                f"One image is blurry, but the second image clearly "
+                f"Some images are blurry, but at least one image clearly "
                 f"shows the {part} {issue}."
             )
 

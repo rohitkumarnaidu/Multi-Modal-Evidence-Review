@@ -71,12 +71,12 @@ def _check_wrong_object(
                 flags.append("wrong_object")
             break
 
-    for a in analyses:
-        if a.visible_object_type == "other" and a.is_usable:
-            fraud.has_wrong_object = True
-            if "wrong_object" not in flags:
-                flags.append("wrong_object")
-            break
+    other_count = sum(1 for a in analyses if a.visible_object_type == "other" and a.is_usable)
+    usable_count = sum(1 for a in analyses if a.is_usable)
+    if usable_count > 0 and other_count >= usable_count:
+        fraud.has_wrong_object = True
+        if "wrong_object" not in flags:
+            flags.append("wrong_object")
 
 
 def _check_wrong_part(
@@ -340,6 +340,7 @@ def _check_vehicle_identity_vlm(
 
     if not result.get("same_vehicle", True):
         fraud.has_vehicle_identity_issue = True
+        fraud.has_wrong_object = True
         reason = result.get("consistency_reason", "Images appear to show different vehicles")
         logger.warning(f"Vehicle identity issue (VLM): {reason}")
         if "wrong_object" not in flags:

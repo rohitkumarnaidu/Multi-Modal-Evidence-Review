@@ -1,7 +1,8 @@
 """
 Multi-Provider LLM Client — Enterprise Fallback Chain.
 
-Priority: Gemini (multi-key) → Groq → OpenRouter → NVIDIA
+Priority: NVIDIA (40 RPM, free unlimited) → OpenRouter (20 RPM)
+       → Gemini (6 keys, 5 RPM/key) → Groq (25 RPM, TPD limited)
 
 Each provider is tried in order. If one fails all retries,
 the next provider is automatically attempted. The pipeline

@@ -19,6 +19,7 @@ from typing import Optional
 
 from config import ISSUE_TYPES, OBJECT_PARTS_BY_TYPE, STOCK_IMAGE_MARKERS
 from data_loader import get_image_mime_type, load_image_as_base64
+from engines.claim_engine import _fuzzy_match_part, _fuzzy_match_issue
 from models import ClaimInput, ImageAnalysis
 
 logger = logging.getLogger(__name__)
@@ -68,15 +69,15 @@ def analyze_single_image(
             confidence=0.0,
         )
 
-    # Parse VLM response into ImageAnalysis
+    # Parse VLM response into ImageAnalysis (with fuzzy matching for robustness)
     allowed_parts = OBJECT_PARTS_BY_TYPE.get(claim.claim_object, set())
     visible_part = result.get("visible_object_part", "unknown")
     if visible_part not in allowed_parts:
-        visible_part = "unknown"
+        visible_part = _fuzzy_match_part(visible_part, allowed_parts)
 
     visible_issue = result.get("visible_issue_type", "unknown")
     if visible_issue not in ISSUE_TYPES:
-        visible_issue = "unknown"
+        visible_issue = _fuzzy_match_issue(visible_issue)
 
     analysis = ImageAnalysis(
         image_id=image_id,
