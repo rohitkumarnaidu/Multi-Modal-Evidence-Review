@@ -1,0 +1,42 @@
+# ─── Python ──────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+
+# ─── Virtual Environment ─────────────────────────────────────────────────────
+venv/
+.venv/
+env/
+
+# ─── Secrets ─────────────────────────────────────────────────────────────────
+.env
+*.key
+
+# ─── Cache ───────────────────────────────────────────────────────────────────
+code/.cache/
+.cache/
+
+# ─── Logs ────────────────────────────────────────────────────────────────────
+*.log
+code/run.log
+
+# ─── IDE / Editor ────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ─── Output (regenerated) ───────────────────────────────────────────────────
+dataset/output.csv
+dataset/sample_output.csv
+code/evaluation/evaluation_report.md
+code/evaluation/eval_metrics.json
+code/metrics.json
