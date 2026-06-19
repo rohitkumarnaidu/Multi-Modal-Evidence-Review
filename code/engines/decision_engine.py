@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 
 from calibration.issue_calibration import calibrate_issue_type
+from calibration.part_map import calibrate_part, CLOSE_PARTS
 from calibration.severity_map import calibrate_severity
 from models import (
     ClaimExtraction,
@@ -33,29 +34,59 @@ def make_decision(
     user_risk_flags: list[str],
     user_risk_summary: str,
 ) -> ClaimOutput:
-    visible_part = _determine_visible_part(extraction, image_analyses, fraud)
+    visible_part = _determine_visible_part(claim, extraction, image_analyses, fraud)
+
+    # Apply part calibration to per-image analyses so downstream logic uses corrected data.
+    # Only overwrite when there's an actual override (check: result != original)
+    for a in image_analyses:
+        original = a.visible_object_part
+        calibrated = calibrate_part(
+            claim.claim_object, extraction.claimed_object_part, original
+        )
+        if calibrated != original:
+            a.visible_object_part = calibrated
+            logger.debug(
+                f"Part calibration: {original} -> {calibrated} for {a.image_id}"
+            )
+
     raw_issue = _determine_visible_issue(image_analyses, visible_part, extraction)
 
     # Step 1: VLM sometimes misses subtle damage (small dents, light scratches).
     # If VLM says "none" but user claims a specific issue AND the VLM did NOT
     # explicitly flag damage_not_visible, trust the claim over VLM's "none".
     # Exception: if VLM confirms part is visible with no damage, trust VLM.
-    override_none = (
-        raw_issue == "none"
-        and extraction.claimed_issue_type not in ("none", "unknown")
-    )
-    if override_none:
-        # Only override if VLM didn't explicitly say "no damage visible"
-        damage_not_visible_flagged = hasattr(fraud, 'damage_not_visible') and fraud.damage_not_visible
-        if not damage_not_visible_flagged:
-            visible_issue = extraction.claimed_issue_type
-        else:
-            visible_issue = raw_issue
-    else:
-        # Step 2: Calibrate VLM systematic biases (glass_shatter→crack, etc.)
+    if raw_issue != "none":
         visible_issue = calibrate_issue_type(
             claim.claim_object, visible_part, raw_issue
         )
+    else:
+        damage_not_visible_flagged = hasattr(fraud, 'damage_not_visible') and fraud.damage_not_visible
+        if damage_not_visible_flagged:
+            visible_issue = "none"
+        else:
+            calibrated = calibrate_issue_type(
+                claim.claim_object, visible_part, extraction.claimed_issue_type
+            )
+            visible_issue = calibrated if calibrated not in ("none", "unknown") else extraction.claimed_issue_type
+
+    # Apply issue calibration to per-image analyses so decision logic uses consistent data
+    for a in image_analyses:
+        if a.visible_issue_type not in ("none", "unknown"):
+            calibrated_issue = calibrate_issue_type(
+                claim.claim_object, a.visible_object_part or visible_part, a.visible_issue_type
+            )
+            if calibrated_issue != a.visible_issue_type:
+                a.visible_issue_type = calibrated_issue
+
+    for a in image_analyses:
+        if visible_issue not in ("none", "unknown"):
+            a.shows_claimed_damage = (
+                a.visible_issue_type == visible_issue
+                or (a.visible_issue_type == "none" and extraction.claimed_issue_type == visible_issue)
+            )
+            if a.visible_issue_type == "none" and extraction.claimed_issue_type == visible_issue:
+                damage_not_visible_flagged = hasattr(fraud, 'damage_not_visible') and fraud.damage_not_visible
+                a.shows_claimed_damage = not damage_not_visible_flagged
 
     # Step 3: Calibrate severity
     raw_severity = _determine_raw_severity(image_analyses, visible_part, visible_issue)
@@ -63,8 +94,16 @@ def make_decision(
         claim.claim_object, visible_part, visible_issue, raw_severity
     )
 
+    damage_not_visible_flagged = hasattr(fraud, 'damage_not_visible') and fraud.damage_not_visible
+    override_none_applied = (
+        raw_issue == "none"
+        and extraction.claimed_issue_type not in ("none", "unknown")
+        and not damage_not_visible_flagged
+    )
+
     claim_status = _determine_claim_status(
-        claim, extraction, image_analyses, evidence, fraud, visible_part, visible_issue
+        claim, extraction, image_analyses, evidence, fraud, visible_part, visible_issue,
+        override_none_applied=override_none_applied, quality=quality
     )
 
     # Override severity for NEI — can't determine from insufficient evidence
@@ -137,6 +176,7 @@ def make_decision(
 
 
 def _determine_visible_part(
+    claim: ClaimInput,
     extraction: ClaimExtraction,
     analyses: list[ImageAnalysis],
     fraud: FraudSignals | None = None,
@@ -172,6 +212,12 @@ def _determine_visible_part(
 
     if extraction.claimed_object_part in best_parts:
         return extraction.claimed_object_part
+
+    # Check if any close part matches — calibrate VLM part to claimed part
+    for part in best_parts:
+        calibrated = calibrate_part(claim.claim_object, extraction.claimed_object_part, part)
+        if calibrated == extraction.claimed_object_part:
+            return extraction.claimed_object_part
 
     from collections import Counter
     counter = Counter(best_parts)
@@ -235,32 +281,65 @@ def _determine_claim_status(
     fraud: FraudSignals,
     visible_part: str,
     visible_issue: str,
+    override_none_applied: bool = False,
+    quality: dict = None,
 ) -> str:
+    if quality is None:
+        quality = {}
+
     # Rule 1: Evidence not sufficient → not_enough_information
     if not evidence.evidence_standard_met:
         return "not_enough_information"
 
-    # Rule 2: Wrong object entirely
+    # Rule 2a: Wrong object entirely (including unknown object detection)
     if fraud.has_wrong_object and not _any_image_shows_right_object(claim, analyses):
         return "contradicted"
+
+    # Rule 2b: ALL images are non-original (stock photos) → NEI
+    # Stock images of damage don't support the user's actual claim
+    if (
+        fraud.has_non_original_image
+        and quality.get("valid_image", True) == False
+        and visible_issue not in ("none", "unknown")
+    ):
+        return "not_enough_information"
 
     # Rule 3: Vehicle identity mismatch
     if fraud.has_vehicle_identity_issue:
         return "not_enough_information"
 
-    # Rule 4: Part visible, damage matches claim → supported
+    # Compute part_visible early (used by Rule 3.5 onward)
     part_visible = any(
         a.visible_object_part == extraction.claimed_object_part
         and a.is_usable
         for a in analyses
     )
 
+    # Rule 3.5: Benefit of doubt for poor-quality images
+    # When VLM says "none" on the claimed part but images are blurry/cropped/low_light,
+    # the VLM may have missed subtle damage. If no claim_mismatch exists, trust the user.
+    if (
+        part_visible
+        and visible_issue == "none"
+        and extraction.claimed_issue_type not in ("none", "unknown")
+        and not fraud.has_claim_mismatch
+    ):
+        any_poor_quality = any(
+            a.is_blurry or a.is_low_light or a.is_cropped
+            for a in analyses if a.is_usable
+        )
+        if any_poor_quality:
+            return "supported"
+
+    # Rule 4: Part visible, damage matches claim → supported
     damage_matches = any(
         a.visible_issue_type == extraction.claimed_issue_type
         and a.visible_object_part == extraction.claimed_object_part
         and a.is_usable
         for a in analyses
     )
+    if not damage_matches and override_none_applied:
+        damage_matches = True
 
     if part_visible and damage_matches:
         return "supported"
@@ -449,6 +528,16 @@ def _build_justification(
             parts.append(
                 f"The submitted images do not reliably support the claim because "
                 f"they appear to show different vehicles."
+            )
+        elif fraud.has_non_original_image and fraud.has_wrong_object:
+            parts.append(
+                f"The image appears to be a non-original stock photo that does "
+                f"not show the claimed {extraction.claimed_object_part} damage."
+            )
+        elif fraud.has_non_original_image:
+            parts.append(
+                f"The image appears to be a non-original stock photo and the "
+                f"claimed damage cannot be verified from this image."
             )
         elif fraud.has_wrong_object:
             parts.append(

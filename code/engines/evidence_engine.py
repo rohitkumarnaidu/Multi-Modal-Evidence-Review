@@ -144,13 +144,32 @@ def _check_part_evidence(
         )
 
     if has_identity_issue:
+        logger.warning(
+            f"Vehicle identity issue detected for {claim.user_id}, "
+            f"but continuing evaluation (fraud engine will flag it)"
+        )
+
+    if check_issue == "missing_part" and claimed_part_visible:
+        part_visible_with_damage = any(
+            a.visible_object_part == check_part
+            and a.is_usable
+            and a.visible_issue_type not in ("none", "unknown", "missing_part")
+            for a in image_analyses
+        )
+        if part_visible_with_damage:
+            return EvidenceSufficiency(
+                evidence_standard_met=False,
+                evidence_standard_met_reason=(
+                    f"The image shows the {check_part} with visible damage, "
+                    f"which contradicts the claim that it is missing."
+                ),
+            )
         return EvidenceSufficiency(
-            evidence_standard_met=False,
-            evidence_standard_met_reason=(
-                "The submitted images appear to show different vehicles, "
-                "so the image set does not satisfy vehicle identity evidence."
+            evidence_standard_met=True,
+            evidence_standard_met_reason=_build_met_reason(
+                check_part, check_issue, image_analyses, all_blurry
             ),
-            matched_requirements=["REQ_CAR_IDENTITY_OR_SIDE"],
+            matched_requirements=[r.requirement_id for r in applicable_reqs],
         )
 
     if claimed_part_visible:
@@ -163,31 +182,6 @@ def _check_part_evidence(
         )
 
     if right_object_visible:
-        any_damage_visible = any(
-            a.visible_issue_type not in ("none", "unknown")
-            and a.is_usable
-            for a in image_analyses
-        )
-        # Special case: missing_part claims — evidence is met ONLY if the
-        # part is NOT visible (suggesting it might be missing) OR the VLM
-        # explicitly confirms missing_part. If VLM sees the part with
-        # different damage, the missing claim can't be verified.
-        if check_issue == "missing_part":
-            part_visible_with_damage = any(
-                a.visible_object_part == check_part
-                and a.is_usable
-                and a.visible_issue_type not in ("none", "unknown", "missing_part")
-                for a in image_analyses
-            )
-            if part_visible_with_damage:
-                return EvidenceSufficiency(
-                    evidence_standard_met=False,
-                    evidence_standard_met_reason=(
-                        f"The image shows the {check_part} with visible damage, "
-                        f"which contradicts the claim that it is missing."
-                    ),
-                )
-
         # Evidence is sufficient when the correct object type is visible,
         # even if the specific claimed part is not. The decision engine
         # determines whether the visible evidence supports or contradicts.

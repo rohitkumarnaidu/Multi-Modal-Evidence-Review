@@ -25,6 +25,7 @@ def detect_fraud(
     claim: ClaimInput,
     extraction: ClaimExtraction,
     image_analyses: list[ImageAnalysis],
+    llm_client=None,
 ) -> FraudSignals:
     flags: list[str] = []
     fraud = FraudSignals()
@@ -41,8 +42,9 @@ def detect_fraud(
     _check_non_original(image_analyses, flags, fraud)
 
     if claim.claim_object == "car":
-        _check_vehicle_identity(claim, extraction, image_analyses, flags, fraud)
+        _check_vehicle_identity(claim, extraction, image_analyses, flags, fraud, llm_client)
 
+    _check_unknown_object(claim, extraction, image_analyses, flags, fraud)
     _check_damage_visibility(extraction, image_analyses, flags, fraud)
 
     fraud.risk_flags = flags
@@ -169,12 +171,39 @@ def _check_non_original(
             flags.append("non_original_image")
 
 
+def _check_unknown_object(
+    claim: ClaimInput,
+    extraction: ClaimExtraction,
+    analyses: list[ImageAnalysis],
+    flags: list[str],
+    fraud: FraudSignals,
+):
+    """When VLM says object_type=unknown but identifies a specific part,
+    the visible object likely isn't the claimed type → wrong_object."""
+    for a in analyses:
+        if (
+            a.visible_object_type in ("unknown", "other")
+            and a.is_usable
+            and a.visible_object_part not in ("unknown", "")
+            and a.visible_object_part != extraction.claimed_object_part
+        ):
+            fraud.has_wrong_object = True
+            if "wrong_object" not in flags:
+                flags.append("wrong_object")
+            logger.info(
+                f"Unknown object detected: VLM sees part={a.visible_object_part} "
+                f"but claim object={claim.claim_object}, claimed part={extraction.claimed_object_part}"
+            )
+            break
+
+
 def _check_vehicle_identity(
     claim: ClaimInput,
     extraction: ClaimExtraction,
     analyses: list[ImageAnalysis],
     flags: list[str],
     fraud: FraudSignals,
+    llm_client=None,
 ):
     """Multi-factor vehicle identity cross-check.
 
@@ -186,7 +215,7 @@ def _check_vehicle_identity(
       1. Color consistency (primary + secondary descriptions)
       2. Vehicle type consistency (sedan vs SUV vs truck)
       3. Claimed color vs visible color match
-      4. Part-to-part correspondence across images
+      4. VLM cross-image identity check (when available)
     """
     if len(analyses) < 2:
         return
@@ -220,7 +249,6 @@ def _check_vehicle_identity(
     if len(distinct_colors) > 1:
         valid_distinct = distinct_colors - {"unknown", ""}
         if len(valid_distinct) > 1:
-            # Truly different colors named
             color_score = 0.15
         else:
             color_score = 0.8
@@ -256,22 +284,66 @@ def _check_vehicle_identity(
     # ── Identity score ───────────────────────────────────────────────────
     identity_score = (color_score + type_score) / 2.0
 
-    # Only flag as identity issue if score is very low
-    if identity_score < 0.3 and not claimed_color_match:
+    if identity_score < 0.3:
         fraud.has_vehicle_identity_issue = True
         logger.warning(f"Vehicle identity issue: colors={colors}, types={types}, score={identity_score:.2f}")
+    elif not claimed_color_match and claimed_color:
+        fraud.has_vehicle_identity_issue = True
+        logger.warning(f"Vehicle identity issue: claimed color '{claimed_color}' not visible in images ({colors})")
     elif not claimed_color_match:
-        # Mild mismatch — don't block the claim, just log
         logger.info(f"Claimed color '{claimed_color}' differs from visual colors: {colors}")
 
-    # ── Factor 4: Part-to-part correspondence ────────────────────────────
-    if not fraud.has_vehicle_identity_issue:
-        parts_set = set()
-        for a in usable:
-            if a.visible_object_part and a.visible_object_part != "unknown":
-                parts_set.add(a.visible_object_part)
-        # If images show completely unrelated parts (e.g., front bumper AND rear bumper)
-        # it might still be the same car — not a signal by itself
+    # ── Factor 4: VLM Cross-Image Identity Check ─────────────────────────
+    # When color/type matching is inconclusive, ask the VLM directly
+    if not fraud.has_vehicle_identity_issue and llm_client is not None:
+        _check_vehicle_identity_vlm(claim, usable, flags, fraud, llm_client)
+
+
+def _check_vehicle_identity_vlm(
+    claim: ClaimInput,
+    usable_analyses: list[ImageAnalysis],
+    flags: list[str],
+    fraud: FraudSignals,
+    llm_client,
+):
+    """Use VLM to cross-check vehicle identity across images.
+    
+    Builds summaries from per-image analyses and asks the VLM to determine
+    if images show the same vehicle.
+    """
+    from llm.prompts import build_vehicle_identity_prompt
+
+    # Convert ImageAnalysis to dicts for prompt
+    image_summaries = []
+    for a in usable_analyses:
+        image_summaries.append({
+            "image_id": a.image_id,
+            "visible_object_type": a.visible_object_type,
+            "vehicle_color": a.vehicle_color,
+            "visible_object_part": a.visible_object_part,
+            "visible_issue_type": a.visible_issue_type,
+        })
+
+    conv_lower = claim.user_claim.lower()
+    claimed_description = ""
+    for color in ["blue", "black", "white", "red", "silver", "grey", "gray", "green"]:
+        if f"my {color} car" in conv_lower:
+            claimed_description = f"{color} car"
+            break
+
+    prompt = build_vehicle_identity_prompt(image_summaries, claimed_description)
+    result = llm_client.call_text(prompt)
+
+    if result is None:
+        logger.warning("VLM vehicle identity check failed, using color-only result")
+        return
+
+    if not result.get("same_vehicle", True):
+        fraud.has_vehicle_identity_issue = True
+        reason = result.get("consistency_reason", "Images appear to show different vehicles")
+        logger.warning(f"Vehicle identity issue (VLM): {reason}")
+        if "wrong_object" not in flags:
+            flags.append("wrong_object")
 
 
 def _check_damage_visibility(

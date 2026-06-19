@@ -42,11 +42,23 @@ from engines.vision_engine import analyze_all_images
 from llm.multi_provider_client import MultiProviderClient
 from models import ClaimOutput
 
+class SafeStreamHandler(logging.StreamHandler):
+    """Stream handler that replaces unicode chars instead of crashing."""
+    def emit(self, record):
+        try:
+            super().emit(record)
+        except UnicodeEncodeError:
+            msg = self.format(record)
+            try:
+                stream.write(msg.encode("utf-8", errors="replace").decode("utf-8", errors="replace") + "\n")
+            except Exception:
+                self.handleError(record)
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     handlers=[
-        logging.StreamHandler(sys.stdout),
+        SafeStreamHandler(sys.stdout),
         logging.FileHandler(CODE_DIR / "run.log", encoding="utf-8"),
     ],
 )
@@ -69,10 +81,10 @@ def process_single_claim(
 
     try:
         extraction = extract_claim_with_llm(claim, llm_client)
-        logger.info(f"  → Extracted: part={extraction.claimed_object_part}, issue={extraction.claimed_issue_type}")
+        logger.info(f"  -> Extracted: part={extraction.claimed_object_part}, issue={extraction.claimed_issue_type}")
 
         image_analyses = analyze_all_images(claim, llm_client)
-        logger.info(f"  → Analyzed {len(image_analyses)} images")
+        logger.info(f"  -> Analyzed {len(image_analyses)} images")
 
         for a in image_analyses:
             a.shows_claimed_part = (
@@ -86,18 +98,18 @@ def process_single_claim(
         evidence = check_evidence_sufficiency(
             claim, extraction, image_analyses, evidence_requirements
         )
-        logger.info(f"  → Evidence met: {evidence.evidence_standard_met}")
+        logger.info(f"  -> Evidence met: {evidence.evidence_standard_met}")
 
         quality = assess_image_quality(image_analyses)
-        logger.info(f"  → Valid image: {quality['valid_image']}")
+        logger.info(f"  -> Valid image: {quality['valid_image']}")
 
-        fraud = detect_fraud(claim, extraction, image_analyses)
-        logger.info(f"  → Fraud flags: {fraud.risk_flags}")
+        fraud = detect_fraud(claim, extraction, image_analyses, llm_client)
+        logger.info(f"  -> Fraud flags: {fraud.risk_flags}")
 
         user_history = user_history_map.get(claim.user_id)
         user_risk_flags = get_user_risk_flags(user_history)
         user_risk_summary = get_risk_summary(user_history)
-        logger.info(f"  → User risk flags: {user_risk_flags}")
+        logger.info(f"  -> User risk flags: {user_risk_flags}")
 
         output = make_decision(
             claim=claim,
@@ -113,14 +125,14 @@ def process_single_claim(
         output = polish_output(output)
 
         logger.info(
-            f"  ✓ Result: status={output.claim_status}, "
+            f"  [OK] Result: status={output.claim_status}, "
             f"part={output.object_part}, issue={output.issue_type}, "
             f"severity={output.severity}"
         )
         return output
 
     except Exception as e:
-        logger.error(f"  ✗ Error processing claim {claim.user_id}: {e}", exc_info=True)
+        logger.error(f"  [ERR] Error processing claim {claim.user_id}: {e}", exc_info=True)
         return ClaimOutput(
             user_id=claim.user_id,
             image_paths=claim.image_paths,

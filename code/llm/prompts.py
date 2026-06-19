@@ -105,13 +105,14 @@ IMAGE ANALYSES:
 
 CLAIMED VEHICLE: {claimed_description}
 
-Respond with ONLY this JSON:
+OUTPUT: ONLY valid JSON. No preamble, no markdown, no explanation before the JSON.
+
 {{
-    "same_vehicle": <true/false — do all images appear to show the same car>,
-    "consistency_reason": "<1-sentence explanation>",
-    "color_consistent": <true/false>,
-    "model_consistent": <true/false — same apparent make/model>,
-    "mismatched_image_ids": ["<image IDs that don't match, if any>"]
+    "same_vehicle": true,
+    "consistency_reason": "Both images show a silver sedan with matching damage patterns",
+    "color_consistent": true,
+    "model_consistent": true,
+    "mismatched_image_ids": []
 }}"""
 
 

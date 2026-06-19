@@ -1,0 +1,14 @@
+version: "3.9"
+
+services:
+  evidence-review:
+    build:
+      context: ./code
+      dockerfile: Dockerfile
+    container_name: multi-modal-evidence-review
+    volumes:
+      - ./dataset:/app/../dataset
+      - ./code/.cache:/app/.cache
+    env_file:
+      - ./code/.env
+    command: ["--mode", "test"]

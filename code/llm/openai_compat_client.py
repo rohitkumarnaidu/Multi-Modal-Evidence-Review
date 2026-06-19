@@ -40,7 +40,7 @@ class OpenAICompatClient:
     def __init__(
         self,
         provider_name: str,
-        api_key: str,
+        api_key: str | list[str],
         base_url: str,
         text_model: str,
         vision_model: str,
@@ -48,16 +48,20 @@ class OpenAICompatClient:
         max_tokens: int = 4096,
         cache: ResponseCache | None = None,
     ):
-        if not api_key:
+        # Accept list of API keys for rotation (OpenRouter, Gemini compat)
+        self._api_keys = [api_key] if isinstance(api_key, str) else list(api_key)
+        if not self._api_keys or not self._api_keys[0]:
             raise ValueError(f"{provider_name} API key not set.")
 
+        self._current_key_idx = 0
         from openai import OpenAI
         from llm.rate_limiter import SimpleRateLimiter
 
         self.provider_name = provider_name
+        self.base_url = base_url
         # Disable OpenAI SDK auto-retries — we handle retries ourselves
         self._client = OpenAI(
-            api_key=api_key,
+            api_key=self._api_keys[0],
             base_url=base_url,
             max_retries=0,
         )
@@ -80,8 +84,25 @@ class OpenAICompatClient:
 
         logger.info(
             f"[{provider_name}] Initialized: text={text_model}, "
-            f"vision={vision_model}, rpm_limit={rpm}"
+            f"vision={vision_model}, rpm_limit={rpm}, "
+            f"keys={len(self._api_keys)}"
         )
+
+    def _rotate_key(self) -> bool:
+        """Rotate to next API key on auth failure. Returns True if rotated."""
+        if self._current_key_idx < len(self._api_keys) - 1:
+            self._current_key_idx += 1
+            from openai import OpenAI
+            self._client = OpenAI(
+                api_key=self._api_keys[self._current_key_idx],
+                base_url=self.base_url,
+                max_retries=0,
+            )
+            logger.info(
+                f"[{self.provider_name}] Rotated to key {self._current_key_idx + 1}/{len(self._api_keys)}"
+            )
+            return True
+        return False
 
     def call_text(
         self,
@@ -193,6 +214,16 @@ class OpenAICompatClient:
                 return parsed
 
             except json.JSONDecodeError as e:
+                # Try to extract JSON from text (handles markdown-wrapped or prose responses)
+                import re as _re
+                json_match = _re.search(r'\{.*\}', text, _re.DOTALL)
+                if json_match:
+                    try:
+                        parsed = json.loads(json_match.group(0))
+                        logger.debug(f"[{self.provider_name}] JSON extracted from text response")
+                        return parsed
+                    except json.JSONDecodeError:
+                        pass  # Fall through to retry
                 logger.warning(
                     f"[{self.provider_name}] JSON parse error attempt "
                     f"{attempt + 1}: {e}"
@@ -209,6 +240,24 @@ class OpenAICompatClient:
             except Exception as e:
                 error_msg = str(e)
                 error_lower = error_msg.lower()
+
+                # Auth errors (401/403) — rotate key if available
+                is_auth_error = "401" in error_lower or "403" in error_lower or "user not found" in error_lower
+                if is_auth_error:
+                    if self._rotate_key():
+                        logger.warning(
+                            f"[{self.provider_name}] Auth error, rotated key. "
+                            f"Retrying attempt {attempt + 1}: {error_msg[:100]}"
+                        )
+                        # Reset retry state with new key
+                        attempt = -1  # will be incremented to 0 by continue
+                        time.sleep(1.0)
+                        continue
+                    logger.error(
+                        f"[{self.provider_name}] All keys exhausted (auth error): {error_msg[:200]}"
+                    )
+                    self.failed_calls += 1
+                    return None
 
                 # 400 client errors (invalid image, bad request) — don't retry
                 is_client_error = "400" in error_lower and (

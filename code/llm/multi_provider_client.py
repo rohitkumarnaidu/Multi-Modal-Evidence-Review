@@ -27,6 +27,7 @@ from config import (
     NVIDIA_TEXT_MODEL,
     NVIDIA_VISION_MODEL,
     OPENROUTER_API_KEY,
+    OPENROUTER_API_KEYS,
     OPENROUTER_BASE_URL,
     OPENROUTER_TEXT_MODEL,
     OPENROUTER_VISION_MODEL,
@@ -76,14 +77,16 @@ class MultiProviderClient:
             try:
                 openrouter = OpenAICompatClient(
                     provider_name="openrouter",
-                    api_key=OPENROUTER_API_KEY,
+                    api_key=OPENROUTER_API_KEYS,  # pass all keys for rotation
                     base_url=OPENROUTER_BASE_URL,
                     text_model=OPENROUTER_TEXT_MODEL,
                     vision_model=OPENROUTER_VISION_MODEL,
                     cache=self.cache,
                 )
                 self.providers.append(("openrouter", openrouter))
-                logger.info("[MultiProvider] OpenRouter enabled")
+                logger.info(
+                    f"[MultiProvider] OpenRouter enabled ({len(OPENROUTER_API_KEYS)} keys)"
+                )
             except Exception as e:
                 logger.warning(f"[MultiProvider] OpenRouter init failed: {e}")
 

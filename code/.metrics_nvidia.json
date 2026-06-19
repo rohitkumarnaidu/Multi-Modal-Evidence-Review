@@ -1,9 +1,11 @@
 {
-  "mode": "test",
+  "mode": "sample",
   "provider": "nvidia",
-  "total_claims": 44,
-  "elapsed_seconds": 384.01,
-  "avg_seconds_per_claim": 8.73,
+  "parallel": false,
+  "max_workers": 1,
+  "total_claims": 20,
+  "elapsed_seconds": 187.24,
+  "avg_seconds_per_claim": 9.36,
   "llm_stats": {
     "total_calls": 0,
     "cached_calls": 0,
@@ -13,8 +15,8 @@
     "estimated_cost_usd": 0.0
   },
   "cache_stats": {
-    "hits": 0,
-    "misses": 126,
-    "hit_rate": 0.0
+    "hits": 49,
+    "misses": 3,
+    "hit_rate": 0.9423076923076923
   }
 }

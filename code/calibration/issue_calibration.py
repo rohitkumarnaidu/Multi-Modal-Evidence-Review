@@ -47,6 +47,47 @@ ISSUE_OVERRIDES = {
     # Package contents → missing_part (if VLM says crushed or torn on contents)
     ("package", "contents", "crushed_packaging"): "missing_part",
     ("package", "contents", "torn_packaging"): "missing_part",
+
+    # Laptop trackpad → stain (VLM often misidentifies wear marks as damage)
+    ("laptop", "trackpad", "stain"): "none",
+    ("laptop", "trackpad", "scratch"): "none",
+
+    # Laptop body → dent (VLM over-classifies minor casing dents)
+    ("laptop", "body", "broken_part"): "dent",
+    
+    # Package seal → torn_packaging (VLM often says water_damage for seal issues)
+    ("package", "seal", "water_damage"): "torn_packaging",
+    
+    # Car windshield → crack (VLM over-classifies as glass_shatter)
+    ("car", "windshield", "glass_shatter"): "crack",
+    ("car", "windshield", "broken_part"): "crack",
+    
+    # Car headlight/taillight → broken_part (not glass_shatter for plastic lenses)
+    ("car", "headlight", "glass_shatter"): "broken_part",
+    ("car", "taillight", "glass_shatter"): "broken_part",
+    
+    # Car front_bumper → broken_part (VLM often says dent when it's broken)
+    ("car", "front_bumper", "dent"): "broken_part",
+    ("car", "front_bumper", "scratch"): "broken_part",
+    
+    # Car rear_bumper → dent (VLM over-classifies as broken_part)
+    ("car", "rear_bumper", "broken_part"): "dent",
+    ("car", "rear_bumper", "crack"): "dent",
+    
+    # Car door → dent (VLM often says scratch for minor dents)
+    ("car", "door", "scratch"): "dent",
+    
+    # Package box → crushed_packaging (VLM often says torn when crushed)
+    ("package", "box", "torn_packaging"): "crushed_packaging",
+    ("package", "box", "unknown"): "crushed_packaging",
+    
+    # Laptop lid crack → screen crack (VLM confuses lid with screen damage)
+    ("laptop", "lid", "crack"): "crack",
+    ("laptop", "lid", "glass_shatter"): "crack",
+    
+    # Package side → water_damage (VLM over-classifies as crushed)
+    ("package", "package_side", "crushed_packaging"): "water_damage",
+    
 }
 
 # Object-level fallbacks (when part is unknown)

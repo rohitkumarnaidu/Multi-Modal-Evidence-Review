@@ -45,7 +45,12 @@ _gemini_keys_raw = os.environ.get("GEMINI_API_KEYS", os.environ.get("GEMINI_API_
 GEMINI_API_KEYS: list[str] = [k.strip() for k in _gemini_keys_raw.split(",") if k.strip()]
 
 GROQ_API_KEY: str = os.environ.get("GROQ_API_KEY", "")
-OPENROUTER_API_KEY: str = os.environ.get("OPENROUTER_API_KEY", "")
+
+# OpenRouter also supports comma-separated keys for rotation
+_openrouter_raw = os.environ.get("OPENROUTER_API_KEY", "")
+OPENROUTER_API_KEYS: list[str] = [k.strip() for k in _openrouter_raw.split(",") if k.strip()]
+OPENROUTER_API_KEY: str = OPENROUTER_API_KEYS[0] if OPENROUTER_API_KEYS else ""
+
 NVIDIA_API_KEY: str = os.environ.get("NVIDIA_API_KEY", "")
 
 # ─── Model Selection Per Provider ────────────────────────────────────────────
