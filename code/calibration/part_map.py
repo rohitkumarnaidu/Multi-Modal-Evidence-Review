@@ -8,6 +8,7 @@ PART_OVERRIDES = {
     ("laptop", "hinge", "lid"): "hinge",
     ("laptop", "hinge", "screen"): "hinge",
     ("laptop", "corner", "lid"): "corner",
+    ("laptop", "corner", "body"): "corner",
     ("laptop", "trackpad", "body"): "trackpad",
     ("laptop", "trackpad", "base"): "trackpad",
     ("package", "seal", "package_side"): "seal",
@@ -31,7 +32,7 @@ CLOSE_PARTS = {
     ],
     "laptop": [
         {"screen", "lid"},
-        {"hinge", "lid", "corner"},
+        {"hinge", "lid", "corner", "body"},
         {"trackpad", "keyboard", "base", "body"},
         {"port", "base", "body"},
     ],

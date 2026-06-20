@@ -111,19 +111,6 @@ def _check_part_evidence(
     ) if image_analyses else True
 
     has_identity_issue = False
-    if claim.claim_object == "car" and len(image_analyses) > 1:
-        colors = [a.vehicle_color.lower().strip() for a in image_analyses if a.vehicle_color]
-        known_colors = {"blue", "black", "white", "red", "silver", "grey", "gray", "green", "yellow", "orange", "brown", "gold", "navy", "charcoal", "beige", "cream", "maroon", "purple"}
-        def _normalize_color(c):
-            c = c.replace("grey", "gray").replace("colored", "").strip()
-            for known in known_colors:
-                if known in c:
-                    return known
-            return c
-        normalized = set(_normalize_color(c) for c in colors if c)
-        valid = normalized - {"unknown", ""}
-        if len(valid) > 1:
-            has_identity_issue = True
 
     if not image_analyses:
         return EvidenceSufficiency(

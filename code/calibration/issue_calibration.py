@@ -29,10 +29,10 @@ def calibrate_issue_type(
     if part in GLASS_PARTS and issue in {"glass_shatter", "broken_part"}:
         return "crack"
 
-    if object_type == "car" and part in LIGHT_OR_MIRROR_PARTS:
-        if issue in {"dent", "scratch", "crack", "glass_shatter", "broken_part", "missing_part"}:
-            return "missing_part" if issue == "missing_part" else "broken_part"
-
+    if object_type == "car":
+        if part in LIGHT_OR_MIRROR_PARTS:
+            if issue in {"dent", "scratch", "crack", "glass_shatter", "broken_part", "missing_part"}:
+                return "missing_part" if issue == "missing_part" else "broken_part"
     if object_type == "package":
         if part == "seal" and issue in {"crack", "broken_part", "scratch"}:
             return "torn_packaging"

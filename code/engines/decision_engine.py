@@ -153,6 +153,9 @@ def _calibrate_analyses(claim: ClaimInput, extraction: ClaimExtraction, analyses
         )
         if a.has_text_instruction:
             a.visible_issue_type = "none"
+    if any(a.has_text_instruction for a in analyses):
+        for a in analyses:
+            a.visible_issue_type = "none"
 
 
 def _issue_compatible(visible_issue: str, claimed_issue: str) -> bool:
@@ -187,6 +190,7 @@ def _supporting_damage_images(
         if a.visible_object_type == claim.claim_object
         and _has_clear_damage(a)
         and _part_compatible(claim, a.visible_object_part, extraction.claimed_object_part, a.visible_parts_list)
+        and _issue_compatible(a.visible_issue_type, extraction.claimed_issue_type)
     ]
 
 
@@ -243,7 +247,7 @@ def _determine_claim_status(
     undamaged_claimed_part: bool,
     claimed_part_visible: bool,
 ) -> str:
-    if fraud.has_wrong_object and not right_object_visible:
+    if fraud.has_wrong_object:
         return "contradicted"
 
     if fraud.has_vehicle_identity_issue:
@@ -252,7 +256,8 @@ def _determine_claim_status(
     if fraud.has_non_original_image:
         if fraud.has_wrong_object or fraud.has_claim_mismatch or fraud.has_prompt_injection_in_image:
             return "contradicted"
-        return "not_enough_information"
+        if not evidence.evidence_standard_met:
+            return "not_enough_information"
 
     if not evidence.evidence_standard_met or not quality.get("valid_image", True):
         if conflicting_damage and not claimed_part_visible:
@@ -266,6 +271,12 @@ def _determine_claim_status(
         return "contradicted"
 
     if conflicting_damage:
+        part_conflict = any(
+            not _part_compatible(claim, a.visible_object_part, extraction.claimed_object_part, a.visible_parts_list)
+            for a in conflicting_damage
+        )
+        if part_conflict:
+            return "contradicted"
         if claimed_part_visible:
             return "contradicted"
         return "not_enough_information"
