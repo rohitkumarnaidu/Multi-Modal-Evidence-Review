@@ -4,8 +4,8 @@
   "parallel": true,
   "max_workers": 4,
   "total_claims": 20,
-  "elapsed_seconds": 739.18,
-  "avg_seconds_per_claim": 36.96,
+  "elapsed_seconds": 228.77,
+  "avg_seconds_per_claim": 11.44,
   "llm_stats": {
     "total_calls": 0,
     "cached_calls": 0,
@@ -17,26 +17,26 @@
   "provider_stats": {
     "nvidia": {
       "provider": "nvidia",
-      "total_calls": 62,
-      "cached_calls": 10,
-      "failed_calls": 0,
-      "total_input_tokens": 75427,
-      "total_output_tokens": 26065
+      "total_calls": 0,
+      "cached_calls": 32,
+      "failed_calls": 20,
+      "total_input_tokens": 0,
+      "total_output_tokens": 0
     },
     "provider_usage": {
       "nvidia": 32
     },
     "cache_stats": {
-      "hits": 10,
-      "misses": 22,
-      "hit_rate": 0.3125
+      "hits": 32,
+      "misses": 0,
+      "hit_rate": 1.0
     },
     "second_opinion_requests": 5,
     "second_opinion_successes": 0
   },
   "cache_stats": {
-    "hits": 10,
-    "misses": 22,
-    "hit_rate": 0.3125
+    "hits": 32,
+    "misses": 0,
+    "hit_rate": 1.0
   }
 }
