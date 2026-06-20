@@ -6,6 +6,7 @@ from __future__ import annotations
 PART_OVERRIDES = {
     ("laptop", "screen", "lid"): "screen",
     ("laptop", "hinge", "lid"): "hinge",
+    ("laptop", "hinge", "screen"): "hinge",
     ("laptop", "corner", "lid"): "corner",
     ("laptop", "trackpad", "body"): "trackpad",
     ("laptop", "trackpad", "base"): "trackpad",
