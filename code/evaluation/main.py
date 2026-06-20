@@ -52,7 +52,14 @@ def run_evaluation(fresh: bool = False, no_run: bool = False):
             return None
         logger.info(f"Using existing output: {sample_output}")
         metrics = {}
-    elif fresh or not sample_output.exists():
+    elif fresh:
+        from main import run_pipeline
+        predictions_list, metrics = run_pipeline(
+            claims_csv=SAMPLE_CLAIMS_CSV,
+            output_csv=sample_output,
+            mode="sample",
+        )
+    elif not sample_output.exists():
         sample_candidates = [
             DATASET_DIR / "sample_output_nvidia_v6.csv",
             DATASET_DIR / "sample_output_nvidia_v5.csv",
@@ -67,6 +74,7 @@ def run_evaluation(fresh: bool = False, no_run: bool = False):
         if sample_source:
             shutil.copy2(sample_source, sample_output)
             logger.info(f"Copied {sample_source} → {sample_output}")
+            metrics = {}
         else:
             from main import run_pipeline
             predictions_list, metrics = run_pipeline(
@@ -95,6 +103,9 @@ def run_evaluation(fresh: bool = False, no_run: bool = False):
 
     # Step 4: Compute metrics
     eval_metrics = compute_all_metrics(predictions, ground_truth)
+    from output_validation import validate_output_rows
+    consistency_errors = validate_output_rows(predictions, expected_rows=len(ground_truth))
+    eval_metrics["consistency_violations"] = consistency_errors
 
     # Step 5: Load history and save new snapshot
     history_path = eval_dir / "metrics_history.json"
@@ -104,6 +115,11 @@ def run_evaluation(fresh: bool = False, no_run: bool = False):
 
     # Step 6: Generate reports
     report_md = format_report(eval_metrics)
+    report_md += "\n\n## Consistency Violations\n"
+    if consistency_errors:
+        report_md += "\n".join(f"- {error}" for error in consistency_errors)
+    else:
+        report_md += "No output schema or evidence-consistency violations found."
     report_md += "\n\n" + _build_operational_analysis(metrics)
 
     report_html = generate_html_report(eval_metrics, history)
@@ -146,6 +162,7 @@ def _save_history(path: Path, current: dict, history: list[dict]):
 def _build_operational_analysis(pipeline_metrics: dict) -> str:
     llm = pipeline_metrics.get("llm_stats", {})
     cache = pipeline_metrics.get("cache_stats", {})
+    provider = pipeline_metrics.get("provider_stats", {})
 
     lines = [
         "# Operational Analysis\n",
@@ -164,6 +181,8 @@ def _build_operational_analysis(pipeline_metrics: dict) -> str:
         f"- Total API calls: {llm.get('total_calls', 'N/A')}",
         f"- Cached calls: {llm.get('cached_calls', 'N/A')}",
         f"- Failed calls: {llm.get('failed_calls', 'N/A')}\n",
+        f"- Provider routing: {provider.get('provider_usage', {})}",
+        f"- Selective second opinions: {provider.get('second_opinion_successes', 0)}/{provider.get('second_opinion_requests', 0)} successful\n",
         "## Token Usage\n",
         f"- Total input tokens: {_fmt_num(llm.get('total_input_tokens', 'N/A'))}",
         f"- Total output tokens: {_fmt_num(llm.get('total_output_tokens', 'N/A'))}",

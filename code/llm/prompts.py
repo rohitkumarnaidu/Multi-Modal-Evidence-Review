@@ -107,7 +107,9 @@ Step 3 — Security check:
 Step 4 — Damage analysis:
   For each visible part, is there any damage? What type? How severe?
   If a part is visible but undamaged, note that. Describe only what
-  you objectively see.
+  you objectively see. If damage is not visually clear, do not infer it
+  from the claim. Return visible_issue_type="none" when the relevant area
+  is visible and undamaged, or "unknown" when the image is too unclear.
 
 Step 5 — Summary:
   Is this image usable for damage assessment? How confident are you?
@@ -123,6 +125,8 @@ EXAMPLE (for a car image):
   visible_parts_list: ["hood", "front_bumper", "driver_door"]
   visible_issue_type: "crack"
   visible_severity: "medium"
+  damage_evidence_level: "clear"
+  damaged_parts: ["front_bumper"]
   vehicle_color: "silver"
   is_blurry: false
   is_low_light: false
@@ -144,6 +148,8 @@ Respond with ONLY this JSON:
     "visible_parts_list": ["<array of ALL visible parts from allowed values — be thorough>"],
     "visible_issue_type": "<from allowed issue_type values — what damage is VISIBLE, use 'none' if part is visible but undamaged>",
     "visible_severity": "<none/low/medium/high/unknown — based on VISUAL extent of damage>",
+    "damage_evidence_level": "<clear/partial/not_visible/unusable — clear only when visible damage can be verified from this image>",
+    "damaged_parts": ["<array of visible damaged parts from allowed values; empty array if no damage is visible>"],
     "vehicle_color": "<color of vehicle if car, else empty string>",
     "is_blurry": <true/false>,
     "is_low_light": <true/false>,

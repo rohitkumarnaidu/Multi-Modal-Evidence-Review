@@ -144,7 +144,7 @@ def test_supporting_images_for_supported():
     assert "img_1" in output.supporting_image_ids or "img_2" in output.supporting_image_ids
 
 
-def test_override_none_with_calibration():
+def test_no_override_none_with_calibration():
     claim = ClaimInput(user_id="u1", image_paths="a.jpg", user_claim="windshield crack", claim_object="car")
     extraction = ClaimExtraction(claimed_issue_type="crack", claimed_object_part="windshield")
     analyses = [
@@ -156,8 +156,8 @@ def test_override_none_with_calibration():
     fraud = FraudSignals()
     quality = {"valid_image": True, "quality_flags": []}
     output = make_decision(claim, extraction, analyses, evidence, fraud, quality, [], "")
-    assert output.issue_type == "crack", f"Expected crack, got {output.issue_type}"
-    assert output.claim_status == "supported"
+    assert output.issue_type == "none", f"Expected none, got {output.issue_type}"
+    assert output.claim_status == "contradicted"
 
 
 def test_calibration_glass_shatter_to_crack():
@@ -173,3 +173,59 @@ def test_calibration_glass_shatter_to_crack():
     quality = {"valid_image": True, "quality_flags": []}
     output = make_decision(claim, extraction, analyses, evidence, fraud, quality, [], "")
     assert output.issue_type == "crack", f"Expected crack, got {output.issue_type}"
+
+
+def test_wrong_angle_does_not_support_claim():
+    claim = ClaimInput(user_id="u1", image_paths="a.jpg", user_claim="door dent", claim_object="car")
+    extraction = ClaimExtraction(claimed_issue_type="dent", claimed_object_part="door")
+    analyses = [
+        ImageAnalysis(
+            image_id="img_1", image_path="a.jpg", is_usable=True,
+            visible_object_type="car", visible_object_part="door",
+            visible_issue_type="dent", has_wrong_angle=True,
+            damage_evidence_level="partial",
+        ),
+    ]
+    evidence = EvidenceSufficiency(evidence_standard_met=False, evidence_standard_met_reason="Wrong angle")
+    output = make_decision(
+        claim, extraction, analyses, evidence, FraudSignals(),
+        {"valid_image": True, "quality_flags": ["wrong_angle"]}, [], ""
+    )
+    assert output.claim_status == "not_enough_information"
+
+
+def test_supported_never_has_unknown_issue():
+    claim = ClaimInput(user_id="u1", image_paths="a.jpg", user_claim="door dent", claim_object="car")
+    extraction = ClaimExtraction(claimed_issue_type="dent", claimed_object_part="door")
+    analyses = [
+        ImageAnalysis(
+            image_id="img_1", image_path="a.jpg", is_usable=True,
+            visible_object_type="car", visible_object_part="door",
+            visible_issue_type="unknown", damage_evidence_level="partial",
+        ),
+    ]
+    evidence = EvidenceSufficiency(evidence_standard_met=True, evidence_standard_met_reason="Part visible")
+    output = make_decision(
+        claim, extraction, analyses, evidence, FraudSignals(),
+        {"valid_image": True, "quality_flags": []}, [], ""
+    )
+    assert output.claim_status != "supported"
+
+
+def test_missing_contents_without_contents_view_is_invalid():
+    claim = ClaimInput(user_id="u1", image_paths="a.jpg", user_claim="item missing", claim_object="package")
+    extraction = ClaimExtraction(claimed_issue_type="missing_part", claimed_object_part="contents")
+    analyses = [
+        ImageAnalysis(
+            image_id="img_1", image_path="a.jpg", is_usable=True,
+            visible_object_type="package", visible_object_part="box",
+            visible_issue_type="none",
+        ),
+    ]
+    evidence = EvidenceSufficiency(evidence_standard_met=False, evidence_standard_met_reason="Contents not visible")
+    output = make_decision(
+        claim, extraction, analyses, evidence, FraudSignals(),
+        {"valid_image": True, "quality_flags": []}, [], ""
+    )
+    assert output.claim_status == "not_enough_information"
+    assert output.valid_image == "false"

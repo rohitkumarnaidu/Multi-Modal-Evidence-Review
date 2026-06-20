@@ -39,41 +39,50 @@ def polish_output(output: ClaimOutput) -> ClaimOutput:
         if not output.evidence_standard_met_reason.endswith("."):
             output.evidence_standard_met_reason += "."
 
-    # Consistency checks
-    # If claim_status = supported, severity should not be "unknown" if evidence met
     if (
         output.claim_status == "supported"
+        and output.issue_type not in ("none", "unknown")
         and output.severity == "unknown"
-        and output.evidence_standard_met == "true"
     ):
-        output.severity = "medium"  # Safe default for supported claims
+        output.severity = "medium"
 
-    # If claim_status = not_enough_information, severity should be "unknown"
-    if (
-        output.claim_status == "not_enough_information"
-        and output.evidence_standard_met == "false"
+    if output.issue_type == "none" and output.claim_status == "supported":
+        output.claim_status = "contradicted"
+        output.severity = "none"
+
+    # Consistency checks: supported must be backed by concrete visual damage.
+    if output.claim_status == "supported" and (
+        output.issue_type in ("none", "unknown")
+        or output.object_part == "unknown"
+        or output.evidence_standard_met != "true"
+        or output.supporting_image_ids == "none"
     ):
+        logger.warning(
+            f"Inconsistency: unsupported visual fields for supported claim {output.user_id}"
+        )
+        output.claim_status = "not_enough_information"
         output.severity = "unknown"
 
-    # If issue_type = none and claim_status = supported, this is inconsistent
-    if output.issue_type == "none" and output.claim_status == "supported":
-        logger.warning(
-            f"Inconsistency: issue_type=none but status=supported for {output.user_id}"
-        )
-        # If no damage visible but claim supported, something is off
-        # This shouldn't happen with correct logic, but catch it
-        output.claim_status = "contradicted"
+    # If claim_status = not_enough_information due to missing evidence, normalize uncertainty.
+    if output.claim_status == "not_enough_information" and output.evidence_standard_met == "false":
+        if output.issue_type in ("none", "unknown"):
+            output.issue_type = "unknown"
+            output.object_part = "unknown"
+            output.supporting_image_ids = "none"
+        output.severity = "unknown"
 
-    # If no images supporting and status is supported
-    if output.supporting_image_ids == "none" and output.claim_status == "supported":
-        logger.warning(
-            f"Inconsistency: no supporting images but status=supported for {output.user_id}"
-        )
+    if output.issue_type == "none":
+        output.severity = "none"
+
+    if output.issue_type == "unknown" and output.claim_status != "contradicted":
+        output.severity = "unknown"
 
     # If valid_image = false, be cautious
     if output.valid_image == "false" and output.claim_status == "supported":
         logger.warning(
             f"Inconsistency: valid_image=false but status=supported for {output.user_id}"
         )
+        output.claim_status = "not_enough_information"
+        output.severity = "unknown"
 
     return output

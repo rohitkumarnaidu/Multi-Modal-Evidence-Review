@@ -29,7 +29,6 @@ RISK_WEIGHTS: dict[str, float] = {
     "possible_manipulation": 0.25,
     "non_original_image": 0.30,
     "text_instruction_present": 0.30,
-    "duplicate_image": 0.20,
     "damage_not_visible": 0.10,
     "blurry_image": 0.05,
     "cropped_or_obstructed": 0.05,
@@ -143,6 +142,26 @@ def _check_wrong_part(
                 flags.append("wrong_object_part")
 
 
+def _same_evidence_family(issue_a: str, issue_b: str) -> bool:
+    """Check if two issue types belong to the same evidence requirement family."""
+    a_lower = issue_a.lower()
+    b_lower = issue_b.lower()
+
+    families = [
+        {"dent", "scratch"},
+        {"crack", "broken", "missing"},
+        {"crushed", "torn", "seal"},
+        {"water", "stain", "label"},
+        {"screen", "keyboard", "trackpad"},
+        {"hinge", "lid", "corner", "body", "port"},
+    ]
+
+    for family in families:
+        if any(kw in a_lower for kw in family) and any(kw in b_lower for kw in family):
+            return True
+    return False
+
+
 def _check_claim_mismatch(
     extraction: ClaimExtraction,
     analyses: list[ImageAnalysis],
@@ -158,9 +177,12 @@ def _check_claim_mismatch(
 
         if (
             a.visible_issue_type not in ("none", "unknown")
+            and extraction.claimed_issue_type not in ("none", "unknown")
             and a.visible_issue_type != extraction.claimed_issue_type
             and a.visible_object_part != "unknown"
         ):
+            if _same_evidence_family(a.visible_issue_type, extraction.claimed_issue_type):
+                continue
             fraud.has_claim_mismatch = True
             if "claim_mismatch" not in flags:
                 flags.append("claim_mismatch")
@@ -310,7 +332,7 @@ def _check_vehicle_identity(
         logger.info(f"Claimed color '{claimed_color}' differs from visual colors: {colors}")
 
     if not fraud.has_vehicle_identity_issue and llm_client is not None:
-        _check_vehicle_identity_vlm(claim, usable, flags, fraud, llm_client)
+        _check_vehicle_identity_vlm(claim, usable, flags, fraud, llm_client, identity_score)
 
 
 def _check_vehicle_identity_vlm(
@@ -319,6 +341,7 @@ def _check_vehicle_identity_vlm(
     flags: list[str],
     fraud: FraudSignals,
     llm_client,
+    identity_score: float = 0.0,
 ):
     from llm.prompts import build_vehicle_identity_prompt
 
@@ -347,6 +370,12 @@ def _check_vehicle_identity_vlm(
         return
 
     if not result.get("same_vehicle", True):
+        if identity_score >= 0.6:
+            # VLM flagged identity but color/type analysis says same vehicle
+            # Likely just different angles confusing the VLM
+            logger.info(f"VLM flagged identity but color analysis (score={identity_score:.2f}) says same vehicle — trusting deterministic check")
+            return
+
         fraud.has_vehicle_identity_issue = True
         fraud.has_wrong_object = True
         reason = result.get("consistency_reason", "Images appear to show different vehicles")
@@ -362,6 +391,19 @@ def _check_damage_visibility(
     fraud: FraudSignals,
 ):
     if extraction.claimed_issue_type in ("none", "unknown"):
+        return
+
+    clear_damage_visible = any(
+        a.is_usable
+        and a.visible_issue_type not in ("none", "unknown", "")
+        and (
+            a.visible_object_part == extraction.claimed_object_part
+            or extraction.claimed_object_part in a.visible_parts_list
+            or extraction.claimed_object_part in getattr(a, "damaged_parts", [])
+        )
+        for a in analyses
+    )
+    if clear_damage_visible:
         return
 
     for a in analyses:
@@ -419,8 +461,10 @@ def _check_image_integrity(
             logger.warning(
                 f"Near-duplicate images detected: {len(duplicates)} pair(s)"
             )
-            if "duplicate_image" not in flags:
-                flags.append("duplicate_image")
+            # Duplicate uploads within a claim are review context, not proof
+            # of fraud and not a valid output-vocabulary flag on their own.
+            if "manual_review_required" not in flags:
+                flags.append("manual_review_required")
 
         if claim.claim_object == "car":
             max_dist = max_phash_distance(image_paths)

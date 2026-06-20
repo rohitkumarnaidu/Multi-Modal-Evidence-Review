@@ -57,6 +57,9 @@ class MultiProviderClient:
         self.cache = ResponseCache()
         self.providers = []
         self.provider_usage: dict[str, int] = {}  # provider → success count
+        self.last_success_provider: str | None = None
+        self.second_opinion_requests = 0
+        self.second_opinion_successes = 0
         self.only_provider = only_provider
 
         # ── Provider 1: NVIDIA (unlimited credits, 40 RPM — best first) ───
@@ -146,6 +149,7 @@ class MultiProviderClient:
                 result = client.call_text(prompt, use_cache=use_cache)
                 if result is not None:
                     self.provider_usage[name] = self.provider_usage.get(name, 0) + 1
+                    self.last_success_provider = name
                     logger.debug(f"[MultiProvider] text call succeeded via {name}")
                     return result
                 else:
@@ -177,6 +181,7 @@ class MultiProviderClient:
                 )
                 if result is not None:
                     self.provider_usage[name] = self.provider_usage.get(name, 0) + 1
+                    self.last_success_provider = name
                     logger.debug(f"[MultiProvider] vision call succeeded via {name}")
                     return result
                 else:
@@ -191,6 +196,28 @@ class MultiProviderClient:
                 )
 
         logger.error("[MultiProvider] All providers failed for vision call")
+        return None
+
+    def call_vision_second_opinion(
+        self,
+        prompt: str,
+        image_data: list[dict],
+        image_paths: list[str] | None = None,
+    ) -> Optional[dict]:
+        """Ask a different available provider for ambiguous visual evidence only."""
+        self.second_opinion_requests += 1
+        for name, client in self.providers:
+            if name == self.last_success_provider:
+                continue
+            try:
+                result = client.call_vision(prompt, image_data, image_paths, use_cache=False)
+                if result is not None:
+                    self.provider_usage[name] = self.provider_usage.get(name, 0) + 1
+                    self.second_opinion_successes += 1
+                    logger.info(f"[MultiProvider] second visual opinion succeeded via {name}")
+                    return result
+            except Exception as e:
+                logger.warning(f"[MultiProvider] second visual opinion via {name} failed: {e}")
         return None
 
     def call_text_ensemble(
@@ -354,4 +381,6 @@ class MultiProviderClient:
                 all_stats[name] = client.stats
         all_stats["provider_usage"] = self.provider_usage
         all_stats["cache_stats"] = self.cache.stats
+        all_stats["second_opinion_requests"] = self.second_opinion_requests
+        all_stats["second_opinion_successes"] = self.second_opinion_successes
         return all_stats

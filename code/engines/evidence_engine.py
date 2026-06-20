@@ -144,9 +144,12 @@ def _check_part_evidence(
         )
 
     if has_identity_issue:
-        logger.warning(
-            f"Vehicle identity issue detected for {claim.user_id}, "
-            f"but continuing evaluation (fraud engine will flag it)"
+        return EvidenceSufficiency(
+            evidence_standard_met=False,
+            evidence_standard_met_reason=(
+                f"The images appear to show different {claim.claim_object}s, "
+                f"so the image set does not satisfy evidence requirements."
+            ),
         )
 
     if check_issue == "missing_part" and claimed_part_visible:
@@ -172,6 +175,23 @@ def _check_part_evidence(
             matched_requirements=[r.requirement_id for r in applicable_reqs],
         )
 
+    if check_part in ("contents", "item"):
+        contents_visible = any(
+            a.visible_object_part in ("contents", "item")
+            or "contents" in a.visible_parts_list
+            or "item" in a.visible_parts_list
+            for a in image_analyses
+            if a.is_usable and not a.has_wrong_angle
+        )
+        if not contents_visible:
+            return EvidenceSufficiency(
+                evidence_standard_met=False,
+                evidence_standard_met_reason=(
+                    "The images do not clearly show the package contents "
+                    "or an opened package view, so the missing-item claim cannot be verified."
+                ),
+            )
+
     if claimed_part_visible:
         return EvidenceSufficiency(
             evidence_standard_met=True,
@@ -182,33 +202,37 @@ def _check_part_evidence(
         )
 
     if right_object_visible:
-        # Evidence is sufficient when the correct object type is visible,
-        # even if the specific claimed part is not. The decision engine
-        # determines whether the visible evidence supports or contradicts.
-        return EvidenceSufficiency(
-            evidence_standard_met=True,
-            evidence_standard_met_reason=(
-                f"The image shows a {claim.claim_object}, which is sufficient "
-                f"to evaluate whether the claimed {check_part} {check_issue} "
-                f"is supported by the visible evidence."
-            ),
-            matched_requirements=[r.requirement_id for r in applicable_reqs],
-        )
-
-    if check_part in ("contents", "item"):
-        contents_visible = any(
-            a.visible_object_part in ("contents", "item")
-            and a.is_usable
+        conflicting_damage = any(
+            a.is_usable
+            and a.visible_object_type == claim.claim_object
+            and a.visible_issue_type not in ("none", "unknown", "")
+            and a.visible_object_part not in ("unknown", check_part)
+            and check_part not in a.visible_parts_list
             for a in image_analyses
         )
-        if not contents_visible:
+        broad_undamaged_view = any(
+            a.is_usable
+            and a.visible_object_type == claim.claim_object
+            and a.visible_issue_type == "none"
+            and len(a.visible_parts_list) >= 3
+            for a in image_analyses
+        )
+        if conflicting_damage or broad_undamaged_view:
             return EvidenceSufficiency(
-                evidence_standard_met=False,
+                evidence_standard_met=True,
                 evidence_standard_met_reason=(
-                    "The images do not clearly show the expected contents "
-                    "or enough of the opened package to verify whether anything is missing."
+                    f"The claimed {check_part} is not directly shown, but the submitted "
+                    f"{claim.claim_object} view provides enough visible context to evaluate a conflict."
                 ),
+                matched_requirements=[r.requirement_id for r in applicable_reqs],
             )
+        return EvidenceSufficiency(
+            evidence_standard_met=False,
+            evidence_standard_met_reason=(
+                f"The submitted images show a {claim.claim_object}, but not enough of the "
+                f"claimed {check_part} area to verify the {check_issue} claim."
+            ),
+        )
 
     return EvidenceSufficiency(
         evidence_standard_met=True,

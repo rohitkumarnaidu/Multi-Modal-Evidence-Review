@@ -23,6 +23,50 @@ from config import (
 logger = logging.getLogger(__name__)
 
 
+def normalize_vision_payload(payload: dict, claim_object: str) -> dict:
+    """Repair an untrusted VLM payload to the active object's exact vocabulary.
+
+    Providers only guarantee JSON, not that a model will respect every enum in
+    a prompt. Keeping this small validation boundary before engine logic stops
+    cross-object leakage from becoming evidence.
+    """
+    normalized = dict(payload or {})
+    allowed_parts = OBJECT_PARTS_BY_TYPE.get(claim_object, {"unknown"})
+
+    def enum_value(key: str, allowed: set | frozenset, fallback: str) -> None:
+        value = str(normalized.get(key, fallback)).strip().lower()
+        normalized[key] = value if value in allowed else fallback
+
+    enum_value("visible_object_type", CLAIM_OBJECTS | {"other", "unknown"}, "unknown")
+    enum_value("visible_object_part", allowed_parts, "unknown")
+    enum_value("visible_issue_type", ISSUE_TYPES, "unknown")
+    enum_value("visible_severity", SEVERITIES, "unknown")
+    enum_value(
+        "damage_evidence_level",
+        {"clear", "partial", "not_visible", "unusable"},
+        "partial",
+    )
+
+    for field in ("visible_parts_list", "damaged_parts"):
+        values = normalized.get(field, [])
+        if not isinstance(values, list):
+            values = []
+        normalized[field] = [
+            str(value).strip().lower()
+            for value in values
+            if str(value).strip().lower() in allowed_parts
+        ]
+
+    for field in (
+        "is_blurry", "is_low_light", "is_cropped", "has_wrong_angle",
+        "has_watermark", "has_text_instruction", "is_usable",
+    ):
+        value = normalized.get(field)
+        if isinstance(value, str):
+            normalized[field] = value.strip().lower() in {"true", "1", "yes"}
+    return normalized
+
+
 # ─── Input Models ────────────────────────────────────────────────────────────
 
 class ClaimInput(BaseModel):
@@ -124,6 +168,8 @@ class ImageAnalysis(BaseModel):
     visible_parts_list: list[str] = Field(default_factory=list)  # ALL visible parts
     visible_issue_type: str = "none"         # damage type visible
     visible_severity: str = "unknown"        # from visual evidence
+    damage_evidence_level: str = "partial"   # clear | partial | not_visible | unusable
+    damaged_parts: list[str] = Field(default_factory=list)  # parts with visible damage
     vehicle_color: str = ""                  # for car identity matching
     vehicle_type: str = ""                   # sedan, SUV, truck, etc.
 

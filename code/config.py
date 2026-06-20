@@ -82,6 +82,11 @@ INTER_CLAIM_DELAY: Final = 1.0  # seconds between claims
 BATCH_SIZE: Final = 5         # Process N claims concurrently
 BATCH_DELAY: Final = 1.0      # seconds between batches
 
+# Vision uploads are normalized before being sent to providers. This keeps
+# multimodal calls predictable while retaining enough resolution for damage review.
+VISION_MAX_LONG_EDGE: Final = 1280
+VISION_JPEG_QUALITY: Final = 90
+
 # ─── Allowed Values (from problem_statement.md) ──────────────────────────────
 
 CLAIM_STATUSES: Final = frozenset({"supported", "contradicted", "not_enough_information"})
@@ -118,7 +123,7 @@ RISK_FLAGS: Final = frozenset({
     "none", "blurry_image", "cropped_or_obstructed", "low_light_or_glare",
     "wrong_angle", "wrong_object", "wrong_object_part", "damage_not_visible",
     "claim_mismatch", "possible_manipulation", "non_original_image",
-    "text_instruction_present", "duplicate_image", "user_history_risk",
+    "text_instruction_present", "user_history_risk",
     "manual_review_required",
 })
 

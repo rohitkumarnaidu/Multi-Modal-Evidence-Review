@@ -97,5 +97,203 @@
       "total": 20
     },
     "_timestamp": "2026-06-20T02:15:42.388789"
+  },
+  {
+    "claim_status_accuracy": {
+      "accuracy": 0.7,
+      "correct": 14,
+      "total": 20
+    },
+    "issue_type_accuracy": {
+      "accuracy": 0.8,
+      "correct": 16,
+      "total": 20
+    },
+    "object_part_accuracy": {
+      "accuracy": 0.6,
+      "correct": 12,
+      "total": 20
+    },
+    "evidence_standard_met_accuracy": {
+      "accuracy": 0.85,
+      "correct": 17,
+      "total": 20
+    },
+    "valid_image_accuracy": {
+      "accuracy": 0.8,
+      "correct": 16,
+      "total": 20
+    },
+    "severity_accuracy": {
+      "accuracy": 0.65,
+      "correct": 13,
+      "total": 20
+    },
+    "_timestamp": "2026-06-20T02:29:11.851324"
+  },
+  {
+    "claim_status_accuracy": {
+      "accuracy": 0.7,
+      "correct": 14,
+      "total": 20
+    },
+    "issue_type_accuracy": {
+      "accuracy": 0.8,
+      "correct": 16,
+      "total": 20
+    },
+    "object_part_accuracy": {
+      "accuracy": 0.6,
+      "correct": 12,
+      "total": 20
+    },
+    "evidence_standard_met_accuracy": {
+      "accuracy": 0.85,
+      "correct": 17,
+      "total": 20
+    },
+    "valid_image_accuracy": {
+      "accuracy": 0.8,
+      "correct": 16,
+      "total": 20
+    },
+    "severity_accuracy": {
+      "accuracy": 0.65,
+      "correct": 13,
+      "total": 20
+    },
+    "_timestamp": "2026-06-20T02:30:02.862282"
+  },
+  {
+    "claim_status_accuracy": {
+      "accuracy": 0.55,
+      "correct": 11,
+      "total": 20
+    },
+    "issue_type_accuracy": {
+      "accuracy": 0.55,
+      "correct": 11,
+      "total": 20
+    },
+    "object_part_accuracy": {
+      "accuracy": 0.85,
+      "correct": 17,
+      "total": 20
+    },
+    "evidence_standard_met_accuracy": {
+      "accuracy": 0.9,
+      "correct": 18,
+      "total": 20
+    },
+    "valid_image_accuracy": {
+      "accuracy": 0.95,
+      "correct": 19,
+      "total": 20
+    },
+    "severity_accuracy": {
+      "accuracy": 0.6,
+      "correct": 12,
+      "total": 20
+    },
+    "_timestamp": "2026-06-20T08:36:27.506021"
+  },
+  {
+    "claim_status_accuracy": {
+      "accuracy": 0.6,
+      "correct": 12,
+      "total": 20
+    },
+    "issue_type_accuracy": {
+      "accuracy": 0.55,
+      "correct": 11,
+      "total": 20
+    },
+    "object_part_accuracy": {
+      "accuracy": 0.85,
+      "correct": 17,
+      "total": 20
+    },
+    "evidence_standard_met_accuracy": {
+      "accuracy": 0.7,
+      "correct": 14,
+      "total": 20
+    },
+    "valid_image_accuracy": {
+      "accuracy": 0.95,
+      "correct": 19,
+      "total": 20
+    },
+    "severity_accuracy": {
+      "accuracy": 0.5,
+      "correct": 10,
+      "total": 20
+    },
+    "_timestamp": "2026-06-20T08:55:52.349259"
+  },
+  {
+    "claim_status_accuracy": {
+      "accuracy": 0.65,
+      "correct": 13,
+      "total": 20
+    },
+    "issue_type_accuracy": {
+      "accuracy": 0.55,
+      "correct": 11,
+      "total": 20
+    },
+    "object_part_accuracy": {
+      "accuracy": 0.85,
+      "correct": 17,
+      "total": 20
+    },
+    "evidence_standard_met_accuracy": {
+      "accuracy": 0.9,
+      "correct": 18,
+      "total": 20
+    },
+    "valid_image_accuracy": {
+      "accuracy": 0.95,
+      "correct": 19,
+      "total": 20
+    },
+    "severity_accuracy": {
+      "accuracy": 0.55,
+      "correct": 11,
+      "total": 20
+    },
+    "_timestamp": "2026-06-20T09:10:48.359960"
+  },
+  {
+    "claim_status_accuracy": {
+      "accuracy": 0.6,
+      "correct": 12,
+      "total": 20
+    },
+    "issue_type_accuracy": {
+      "accuracy": 0.55,
+      "correct": 11,
+      "total": 20
+    },
+    "object_part_accuracy": {
+      "accuracy": 0.85,
+      "correct": 17,
+      "total": 20
+    },
+    "evidence_standard_met_accuracy": {
+      "accuracy": 0.9,
+      "correct": 18,
+      "total": 20
+    },
+    "valid_image_accuracy": {
+      "accuracy": 0.95,
+      "correct": 19,
+      "total": 20
+    },
+    "severity_accuracy": {
+      "accuracy": 0.55,
+      "correct": 11,
+      "total": 20
+    },
+    "_timestamp": "2026-06-20T09:19:57.805140"
   }
 ]

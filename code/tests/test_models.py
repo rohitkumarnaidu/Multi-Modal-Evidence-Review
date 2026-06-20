@@ -5,7 +5,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from models import ClaimInput, ClaimOutput, ImageAnalysis, UserHistory
+from models import ClaimInput, ClaimOutput, ImageAnalysis, UserHistory, normalize_vision_payload
+from engines.explain_engine import polish_output
 
 
 class TestClaimInput:
@@ -113,6 +114,18 @@ class TestClaimOutput:
         )
         assert o.normalize_risk_flags() == "none"
 
+    def test_polish_rejects_supported_unknown_issue(self):
+        output = ClaimOutput(
+            user_id="u1", image_paths="a.jpg", user_claim="claim", claim_object="car",
+            evidence_standard_met="true", evidence_standard_met_reason="ok",
+            risk_flags="none", issue_type="unknown", object_part="door",
+            claim_status="supported", claim_status_justification="test",
+            supporting_image_ids="img_1", valid_image="true", severity="medium",
+        )
+        polished = polish_output(output)
+        assert polished.claim_status == "not_enough_information"
+        assert polished.severity == "unknown"
+
 
 class TestImageAnalysis:
     def test_shows_claimed_part(self):
@@ -133,6 +146,26 @@ class TestImageAnalysis:
             and a.visible_issue_type not in ("none", "unknown")
         )
         assert a.shows_claimed_damage is True
+
+    def test_vision_payload_is_constrained_to_active_object(self):
+        payload = normalize_vision_payload(
+            {
+                "visible_object_type": "car",
+                "visible_object_part": "screen",
+                "visible_parts_list": ["door", "screen"],
+                "damaged_parts": ["door", "screen"],
+                "visible_issue_type": "imaginary_damage",
+                "visible_severity": "severe-ish",
+                "damage_evidence_level": "certain",
+            },
+            "car",
+        )
+        assert payload["visible_object_part"] == "unknown"
+        assert payload["visible_parts_list"] == ["door"]
+        assert payload["damaged_parts"] == ["door"]
+        assert payload["visible_issue_type"] == "unknown"
+        assert payload["visible_severity"] == "unknown"
+        assert payload["damage_evidence_level"] == "partial"
 
 
 class TestUserHistory:

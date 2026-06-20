@@ -127,3 +127,17 @@ class TestEvidenceSufficiency:
         ]
         result = check_evidence_sufficiency(claim, extraction, analyses, REQUIREMENTS)
         assert result.evidence_standard_met is True
+
+    def test_missing_contents_requires_contents_view(self):
+        claim = ClaimInput(user_id="u1", image_paths="a.jpg", user_claim="item missing", claim_object="package")
+        extraction = ClaimExtraction(claimed_issue_type="missing_part", claimed_object_part="contents")
+        analyses = [
+            ImageAnalysis(
+                image_id="img_1", image_path="a.jpg", is_usable=True,
+                visible_object_type="package", visible_object_part="box",
+                visible_issue_type="none",
+            ),
+        ]
+        result = check_evidence_sufficiency(claim, extraction, analyses, REQUIREMENTS)
+        assert result.evidence_standard_met is False
+        assert "contents" in result.evidence_standard_met_reason

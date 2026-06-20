@@ -15,16 +15,17 @@ Key design decision: Images are analyzed independently so that:
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Optional
 
 from config import ISSUE_TYPES, OBJECT_PARTS_BY_TYPE, STOCK_IMAGE_MARKERS
-from data_loader import get_image_mime_type, load_image_as_base64
+from data_loader import load_image_for_vision
 from detectors.cv_quality import analyze_image_quality
 from detectors.ela import analyze_ela
 from detectors.exif_analyzer import analyze_exif
 from detectors.yolo_detector import detect_objects
 from engines.claim_engine import _fuzzy_match_part, _fuzzy_match_issue
-from models import ClaimInput, ImageAnalysis
+from models import ClaimInput, ImageAnalysis, normalize_vision_payload
 
 logger = logging.getLogger(__name__)
 
@@ -39,27 +40,30 @@ def analyze_single_image(
     
     Returns ImageAnalysis with all visual findings independent of claim.
     """
+    from config import DATASET_DIR
     from llm.prompts import build_image_analysis_prompt
 
+    # Resolve relative image path to absolute path
+    abs_image_path = str(DATASET_DIR / image_path) if not Path(image_path).is_absolute() else image_path
+
     # Load image
-    base64_data = load_image_as_base64(image_path)
-    if base64_data is None:
+    prepared_image = load_image_for_vision(image_path)
+    if prepared_image is None:
         logger.error(f"Cannot load image: {image_path}")
         return ImageAnalysis(
             image_id=image_id,
-            image_path=image_path,
+            image_path=abs_image_path,
             is_usable=False,
             damage_description="Image could not be loaded.",
             confidence=0.0,
         )
 
     # Run classical CV pre-check (fast, no API call)
-    cv_quality = analyze_image_quality(image_path)
-    exif_data = analyze_exif(image_path)
-    ela_result = analyze_ela(image_path)
+    cv_quality = analyze_image_quality(abs_image_path)
+    exif_data = analyze_exif(abs_image_path)
+    ela_result = analyze_ela(abs_image_path)
 
-    # Run YOLO for deterministic object detection prior
-    yolo_result = detect_objects(image_path)
+    yolo_result = detect_objects(abs_image_path)
     yolo_prior = ""
     if yolo_result and yolo_result["object_type"] != "unknown":
         obj = yolo_result["object_type"]
@@ -80,20 +84,22 @@ def analyze_single_image(
 
     # Build prompt and call VLM (ensemble mode when enabled)
     prompt = build_image_analysis_prompt(image_id, claim.claim_object, yolo_prior)
-    mime_type = get_image_mime_type(image_path)
+    base64_data, mime_type = prepared_image
+    image_data = [{"mime_type": mime_type, "data": base64_data}]
+    result = llm_client.call_vision(
+        prompt=prompt,
+        image_data=image_data,
+        image_paths=[image_path],
+    )
 
-    if hasattr(llm_client, "call_vision_ensemble"):
-        result = llm_client.call_vision_ensemble(
+    if result is not None and _needs_second_opinion(result) and hasattr(llm_client, "call_vision_second_opinion"):
+        second_opinion = llm_client.call_vision_second_opinion(
             prompt=prompt,
-            image_data=[{"mime_type": mime_type, "data": base64_data}],
+            image_data=image_data,
             image_paths=[image_path],
         )
-    else:
-        result = llm_client.call_vision(
-            prompt=prompt,
-            image_data=[{"mime_type": mime_type, "data": base64_data}],
-            image_paths=[image_path],
-        )
+        if second_opinion is not None:
+            result = _merge_vision_opinions(result, second_opinion)
 
     if result is None:
         logger.error(f"VLM analysis failed for {image_id}")
@@ -104,6 +110,9 @@ def analyze_single_image(
             damage_description="VLM analysis failed.",
             confidence=0.0,
         )
+
+    # Normalize untrusted provider output before it enters evidence logic.
+    result = normalize_vision_payload(result, claim.claim_object)
 
     # Parse VLM response into ImageAnalysis (with fuzzy matching for robustness)
     allowed_parts = OBJECT_PARTS_BY_TYPE.get(claim.claim_object, set())
@@ -124,6 +133,18 @@ def analyze_single_image(
         visible_parts = [p for p in raw_parts if isinstance(p, str) and p in allowed_parts]
     else:
         visible_parts = [visible_part] if visible_part in allowed_parts else []
+
+    raw_damaged_parts = result.get("damaged_parts", [])
+    if isinstance(raw_damaged_parts, list):
+        damaged_parts = [p for p in raw_damaged_parts if isinstance(p, str) and p in allowed_parts]
+    else:
+        damaged_parts = []
+
+    damage_level = _normalize_damage_evidence_level(
+        result.get("damage_evidence_level", ""),
+        visible_issue,
+        result.get("is_usable", True),
+    )
 
     # Merge YOLO with VLM object type (YOLO overrides when confident)
     yolo_obj = ""
@@ -146,6 +167,8 @@ def analyze_single_image(
         visible_parts_list=visible_parts,
         visible_issue_type=visible_issue,
         visible_severity=_normalize_severity(result.get("visible_severity", "unknown")),
+        damage_evidence_level=damage_level,
+        damaged_parts=damaged_parts,
         vehicle_color=result.get("vehicle_color", ""),
         yolo_object_type=yolo_obj,
         yolo_confidence=yolo_conf,
@@ -268,3 +291,58 @@ def _normalize_severity(raw: str) -> str:
         "significant": "medium",
     }
     return mapping.get(raw, "unknown")
+
+
+def _normalize_damage_evidence_level(raw: str, visible_issue: str, is_usable: bool) -> str:
+    """Normalize new evidence-strength signal while supporting older cached results."""
+    raw = str(raw or "").strip().lower()
+    valid = {"clear", "partial", "not_visible", "unusable"}
+    if raw in valid:
+        return raw
+    if not is_usable:
+        return "unusable"
+    if visible_issue in ("none",):
+        return "not_visible"
+    if visible_issue in ("unknown", ""):
+        return "partial"
+    return "clear"
+
+
+def _needs_second_opinion(result: dict) -> bool:
+    """Spend a second call only where the primary visual read is consequentially unclear."""
+    evidence_level = str(result.get("damage_evidence_level", "")).strip().lower()
+    issue = str(result.get("visible_issue_type", "unknown")).strip().lower()
+    object_type = str(result.get("visible_object_type", "unknown")).strip().lower()
+    confidence = float(result.get("confidence", 0.0) or 0.0)
+    return (
+        evidence_level in {"partial", "unusable"}
+        or issue == "unknown"
+        or object_type in {"unknown", "other"}
+        or confidence < 0.70
+        or bool(result.get("has_watermark"))
+        or bool(result.get("has_text_instruction"))
+    )
+
+
+def _merge_vision_opinions(primary: dict, secondary: dict) -> dict:
+    """Use agreement to strengthen confidence; disagreement stays conservative."""
+    merged = dict(primary)
+    fields = ("visible_object_type", "visible_object_part", "visible_issue_type")
+    agrees = all(
+        str(primary.get(field, "")).strip().lower()
+        == str(secondary.get(field, "")).strip().lower()
+        for field in fields
+    )
+    if agrees:
+        merged["confidence"] = min(
+            1.0,
+            (float(primary.get("confidence", 0.5)) + float(secondary.get("confidence", 0.5))) / 2 + 0.10,
+        )
+    else:
+        merged["confidence"] = min(
+            float(primary.get("confidence", 0.5)),
+            float(secondary.get("confidence", 0.5)),
+        )
+        merged["damage_evidence_level"] = "partial"
+        logger.info("Second visual opinion disagreed; retaining a conservative primary interpretation")
+    return merged

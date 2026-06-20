@@ -19,6 +19,10 @@ import logging
 import os
 from typing import Optional
 
+# Suppress Ultralytics auto-install spam
+os.environ["ULTRALYTICS_NO_INSTALL"] = "1"
+os.environ["YOLO_VERBOSE"] = "False"
+
 logger = logging.getLogger(__name__)
 
 _MODEL = None

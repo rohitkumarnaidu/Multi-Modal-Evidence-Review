@@ -56,6 +56,17 @@ python main.py --mode sample
 python evaluation/main.py
 ```
 
+### Force Fresh Evaluation
+```bash
+python evaluation/main.py --fresh
+```
+
+### Inspect Sample Errors and Validate Test Output
+```bash
+python evaluation/error_analysis.py
+python check_output.py
+```
+
 ## Key Design Decisions
 
 1. **2-Call Design** (not single mega-prompt):

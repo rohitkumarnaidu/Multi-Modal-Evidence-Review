@@ -35,7 +35,7 @@ class TestFraudDetection:
         assert result.has_wrong_object is True
         assert "wrong_object" in result.risk_flags
 
-    def test_claim_mismatch(self):
+    def test_same_damage_family_is_not_claim_mismatch(self):
         claim = ClaimInput(user_id="u1", image_paths="a.jpg", user_claim="hood scratch", claim_object="car")
         extraction = ClaimExtraction(claimed_issue_type="scratch", claimed_object_part="hood")
         analyses = [
@@ -44,8 +44,8 @@ class TestFraudDetection:
                           visible_issue_type="dent"),
         ]
         result = detect_fraud(claim, extraction, analyses)
-        assert result.has_claim_mismatch is True
-        assert "claim_mismatch" in result.risk_flags
+        assert result.has_claim_mismatch is False
+        assert "claim_mismatch" not in result.risk_flags
 
     def test_prompt_injection_in_image(self):
         claim = ClaimInput(user_id="u1", image_paths="a.jpg", user_claim="car dent", claim_object="car")

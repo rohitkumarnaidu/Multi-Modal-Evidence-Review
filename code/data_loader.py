@@ -18,6 +18,8 @@ from config import (
     EVIDENCE_REQUIREMENTS_CSV,
     SAMPLE_CLAIMS_CSV,
     USER_HISTORY_CSV,
+    VISION_JPEG_QUALITY,
+    VISION_MAX_LONG_EDGE,
 )
 from models import ClaimInput, EvidenceRequirement, UserHistory
 
@@ -129,6 +131,35 @@ def load_image_as_base64(image_path: str) -> Optional[str]:
         logger.error(f"Error loading image {full_path}: {e}")
         return None
 
+
+def load_image_for_vision(
+    image_path: str,
+    max_long_edge: int = VISION_MAX_LONG_EDGE,
+    jpeg_quality: int = VISION_JPEG_QUALITY,
+) -> Optional[tuple[str, str]]:
+    """Prepare a bounded JPEG upload without altering the source evidence file."""
+    import io
+
+    full_path = DATASET_DIR / Path(image_path)
+    if not full_path.exists():
+        full_path = DATASET_DIR / image_path.replace("\\", "/")
+    if not full_path.exists():
+        logger.error(f"Image not found: {full_path}")
+        return None
+
+    try:
+        from PIL import Image
+
+        with Image.open(full_path) as image:
+            image = image.convert("RGB")
+            if max(image.size) > max_long_edge:
+                image.thumbnail((max_long_edge, max_long_edge), Image.LANCZOS)
+            buffer = io.BytesIO()
+            image.save(buffer, format="JPEG", quality=jpeg_quality, optimize=True)
+        return base64.b64encode(buffer.getvalue()).decode("utf-8"), "image/jpeg"
+    except Exception as e:
+        logger.error(f"Error preparing image {full_path} for vision: {e}")
+        return None
 
 def get_image_mime_type(image_path: str) -> str:
     """Get MIME type from file extension."""

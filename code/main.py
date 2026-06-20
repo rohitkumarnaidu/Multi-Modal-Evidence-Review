@@ -305,6 +305,7 @@ def run_pipeline(
         "elapsed_seconds": round(elapsed, 2),
         "avg_seconds_per_claim": round(elapsed / max(1, total), 2),
         "llm_stats": llm_client.tracker.stats,
+        "provider_stats": llm_client.stats,
         "cache_stats": llm_client.cache.stats,
     }
 

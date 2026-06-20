@@ -46,10 +46,24 @@ def assess_image_quality(
     any_text_instruction = False
     any_edited = False
     all_non_original = True
+    usable_count = 0
+    blurry_usable = 0
+    cropped_usable = 0
+    low_light_usable = 0
+    wrong_angle_usable = 0
 
     for a in image_analyses:
         if a.is_usable:
             any_usable = True
+            usable_count += 1
+            if a.is_blurry:
+                blurry_usable += 1
+            if a.is_cropped:
+                cropped_usable += 1
+            if a.is_low_light:
+                low_light_usable += 1
+            if a.has_wrong_angle:
+                wrong_angle_usable += 1
         if a.is_blurry:
             any_blurry = True
         if a.is_cropped:
@@ -68,13 +82,13 @@ def assess_image_quality(
             any_edited = True
 
     # Build quality flags
-    if any_blurry:
+    if any_blurry and (usable_count == 0 or blurry_usable == usable_count):
         quality_flags.append("blurry_image")
-    if any_cropped:
+    if any_cropped and (usable_count == 0 or cropped_usable == usable_count):
         quality_flags.append("cropped_or_obstructed")
-    if any_low_light:
+    if any_low_light and (usable_count == 0 or low_light_usable == usable_count):
         quality_flags.append("low_light_or_glare")
-    if any_wrong_angle:
+    if any_wrong_angle and (usable_count == 0 or wrong_angle_usable == usable_count):
         quality_flags.append("wrong_angle")
     if any_text_instruction:
         quality_flags.append("text_instruction_present")
